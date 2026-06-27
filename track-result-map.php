@@ -13,7 +13,7 @@ if (empty($trackingId)) {
 $shipment = getShipmentByTracking($trackingId);
 
 if (!$shipment) {
-    header('Location: /track-result.php?id=' . urlencode($trackingId));
+    header('Location: ' . trackingResultUrl($trackingId));
     exit;
 }
 
@@ -140,7 +140,7 @@ include __DIR__ . '/includes/header.php';
                             <span class="material-symbols-outlined mr-2 text-yellow-600 text-[20px]">map</span>
                             Live Shipment Route
                         </h3>
-                        <a class="text-xs font-bold text-yellow-600 uppercase hover:underline flex items-center" href="/track-result.php?id=<?php echo urlencode($trackingId); ?>">
+                        <a class="text-xs font-bold text-yellow-600 uppercase hover:underline flex items-center" href="<?php echo htmlspecialchars(trackingResultUrl($trackingId)); ?>">
                             View Details <span class="material-symbols-outlined ml-1 text-[16px]">open_in_new</span>
                         </a>
                     </div>
@@ -151,7 +151,7 @@ include __DIR__ . '/includes/header.php';
                 </div>
 
                 <div class="bg-surface-light dark:bg-surface-dark rounded shadow-custom">
-                    <a href="/track-result.php?id=<?php echo urlencode($trackingId); ?>" class="w-full flex items-center justify-between p-5 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors rounded">
+                    <a href="<?php echo htmlspecialchars(trackingResultUrl($trackingId)); ?>" class="w-full flex items-center justify-between p-5 text-left hover:bg-gray-50 transition-colors rounded">
                         <span class="font-bold text-gray-700 dark:text-gray-200 uppercase text-sm tracking-wide">Travel History</span>
                         <span class="material-symbols-outlined text-gray-500">open_in_new</span>
                     </a>

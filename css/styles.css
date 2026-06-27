@@ -396,6 +396,80 @@ body {
     background-position: center;
 }
 
+/* Tracking results — cost summary band */
+.track-cost-band {
+    background: linear-gradient(135deg, #92400e 0%, #d97706 35%, #fbbf24 70%, #fde047 100%);
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    box-shadow: 0 10px 30px rgba(146, 64, 14, 0.25);
+}
+
+.track-cost-band-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.875rem;
+}
+
+@media (min-width: 768px) {
+    .track-cost-band-grid {
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 1rem;
+    }
+}
+
+.track-cost-card {
+    background: #ffffff;
+    border-radius: 0.625rem;
+    padding: 1rem 1.125rem;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    min-height: 5.5rem;
+    justify-content: center;
+}
+
+.track-cost-card-total {
+    border: 2px solid rgba(146, 64, 14, 0.15);
+    background: linear-gradient(180deg, #ffffff 0%, #fffbeb 100%);
+}
+
+@media (min-width: 768px) {
+    .track-cost-card-total {
+        grid-column: span 1;
+    }
+}
+
+.track-cost-label {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #78716c;
+}
+
+.track-cost-value {
+    font-size: 1.375rem;
+    font-weight: 800;
+    color: #1c1917;
+    line-height: 1.2;
+}
+
+.track-cost-value-total {
+    font-size: 1.625rem;
+    color: #92400e;
+}
+
+@media (min-width: 768px) {
+    .track-cost-value {
+        font-size: 1.5rem;
+    }
+
+    .track-cost-value-total {
+        font-size: 1.875rem;
+    }
+}
+
 .global-reach-glass {
     background: rgba(255, 255, 255, 0.06);
     backdrop-filter: blur(16px);

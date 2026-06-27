@@ -156,7 +156,7 @@ if ($result) {
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm">
                                 <div class="flex flex-wrap items-center gap-3">
-                                    <a href="/track-result?id=<?php echo urlencode($shipment['tracking_number']); ?>" target="_blank"
+                                    <a href="<?php echo htmlspecialchars(trackingResultUrl($shipment['tracking_number'])); ?>" target="_blank"
                                        class="inline-flex items-center px-3 py-1.5 rounded border border-primary text-primary hover:bg-primary hover:text-white transition-colors font-bold">
                                         View
                                     </a>

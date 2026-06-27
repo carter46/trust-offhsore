@@ -2,7 +2,7 @@
 $trackingId = isset($_GET['id']) ? trim($_GET['id']) : '';
 
 if (!empty($trackingId)) {
-    header('Location: /track-result.php?id=' . urlencode($trackingId));
+    header('Location: ' . trackingResultUrl($trackingId));
     exit;
 }
 

@@ -314,7 +314,7 @@ include __DIR__ . '/includes/admin-header.php';
                                    class="inline-flex items-center px-3 py-1.5 rounded border border-secondary text-secondary hover:bg-secondary hover:text-white transition-colors font-bold">
                                     Edit
                                 </a>
-                                <a href="/track-result?id=<?php echo urlencode($s['tracking_number']); ?>" target="_blank"
+                                <a href="<?php echo htmlspecialchars(trackingResultUrl($s['tracking_number'])); ?>" target="_blank"
                                    class="inline-flex items-center px-3 py-1.5 rounded border border-primary text-primary hover:bg-primary hover:text-white transition-colors font-bold">
                                     View
                                 </a>

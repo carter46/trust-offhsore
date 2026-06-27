@@ -448,6 +448,17 @@ function requireAdminLogin() {
 }
 
 /**
+ * Public tracking page URLs (clean paths, no .php — avoids double-encoding redirects).
+ */
+function trackingResultUrl($trackingNumber) {
+    return '/track-result?id=' . rawurlencode(trim((string) $trackingNumber));
+}
+
+function trackingMapUrl($trackingNumber) {
+    return '/track-result-map?id=' . rawurlencode(trim((string) $trackingNumber));
+}
+
+/**
  * Format a monetary amount for display (USD).
  */
 function formatMoney($amount) {
@@ -709,7 +720,7 @@ function generateShipmentEmailTemplate($shipment, $trackingEvents = []) {
     $referenceNumber = $shipment['reference_number'] ?? 'N/A';
     
     // Tracking URL
-    $trackingUrl = $siteUrl . '/track-result?id=' . urlencode($shipment['tracking_number']);
+    $trackingUrl = $siteUrl . trackingResultUrl($shipment['tracking_number']);
     
     // Generate QR code URL using a QR code API service
     $qrCodeUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' . urlencode($trackingUrl);

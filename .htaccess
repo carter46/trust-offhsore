@@ -6,6 +6,8 @@ RewriteEngine On
 RewriteCond %{THE_REQUEST} \s/+([^.\s?]*?)\.php(\?[^\s]*)?\s [NC]
 RewriteCond %{REQUEST_URI} !^/admin/
 RewriteCond %{REQUEST_URI} !^/api/
+RewriteCond %{REQUEST_URI} !^/track-result
+RewriteCond %{REQUEST_URI} !^/track-result-map
 RewriteRule ^ /%1%2 [R=301,L]
 
 # Remove .php extension from URLs (public pages only)

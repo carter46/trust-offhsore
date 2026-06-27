@@ -255,7 +255,7 @@ include __DIR__ . '/includes/header.php';
                         </div>
                     </div>
                     <div class="flex flex-col sm:flex-row gap-3 w-full lg:w-auto mt-4 lg:mt-0">
-                        <a href="/track-result-map?id=<?php echo urlencode($trackingId); ?>" class="bg-yellow-400 hover:bg-yellow-500 text-black font-bold py-3 px-8 rounded-full text-sm uppercase tracking-wide transition-colors shadow-sm whitespace-nowrap text-center">
+                        <a href="<?php echo htmlspecialchars(trackingMapUrl($trackingId)); ?>" class="bg-yellow-400 hover:bg-yellow-500 text-black font-bold py-3 px-8 rounded-full text-sm uppercase tracking-wide transition-colors shadow-sm whitespace-nowrap text-center">
                             View Map
                         </a>
                         <button class="border-2 border-yellow-400 text-yellow-600 hover:bg-yellow-50 font-bold py-3 px-8 rounded-full text-sm uppercase tracking-wide transition-colors whitespace-nowrap">
@@ -314,6 +314,40 @@ include __DIR__ . '/includes/header.php';
                 </button>
             </div>
         </div>
+        <?php
+        $totalDue = getShipmentTotalDue($shipment);
+        $hasCostBand = !empty($shipment['base_cost']) || !empty($shipment['clearance_cost']) || $totalDue !== null;
+        if ($hasCostBand):
+        ?>
+        <section class="track-cost-band mb-8" aria-label="Shipment costs">
+            <div class="track-cost-band-grid">
+                <?php if (!empty($shipment['base_cost'])): ?>
+                <div class="track-cost-card">
+                    <span class="track-cost-label">Shipping Cost</span>
+                    <span class="track-cost-value">$<?php echo htmlspecialchars(formatMoney($shipment['base_cost'])); ?></span>
+                </div>
+                <?php endif; ?>
+                <?php if (!empty($shipment['clearance_cost'])): ?>
+                <div class="track-cost-card">
+                    <span class="track-cost-label">Clearance Cost</span>
+                    <span class="track-cost-value">$<?php echo htmlspecialchars(formatMoney($shipment['clearance_cost'])); ?></span>
+                </div>
+                <?php endif; ?>
+                <?php if (!empty($shipment['shipment_worth'])): ?>
+                <div class="track-cost-card">
+                    <span class="track-cost-label">Shipment Worth</span>
+                    <span class="track-cost-value">$<?php echo htmlspecialchars(formatMoney($shipment['shipment_worth'])); ?></span>
+                </div>
+                <?php endif; ?>
+                <?php if ($totalDue !== null): ?>
+                <div class="track-cost-card track-cost-card-total">
+                    <span class="track-cost-label">Total Due</span>
+                    <span class="track-cost-value track-cost-value-total">$<?php echo htmlspecialchars(formatMoney($totalDue)); ?></span>
+                </div>
+                <?php endif; ?>
+            </div>
+        </section>
+        <?php endif; ?>
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
             <div class="lg:col-span-2">
                 <div class="bg-white shadow-sm rounded-sm overflow-hidden border border-gray-200">
@@ -444,30 +478,6 @@ include __DIR__ . '/includes/header.php';
                         <div class="pb-4 border-b border-gray-100 last:border-0 last:pb-0">
                             <div class="text-xs font-bold text-gray-500 uppercase mb-1 tracking-wider">Reference</div>
                             <div class="text-sm text-gray-800 font-medium"><?php echo htmlspecialchars($shipment['reference_number']); ?></div>
-                        </div>
-                        <?php endif; ?>
-                        <?php if (!empty($shipment['shipment_worth'])): ?>
-                        <div class="pb-4 border-b border-gray-100 last:border-0 last:pb-0">
-                            <div class="text-xs font-bold text-gray-500 uppercase mb-1 tracking-wider">Shipment Worth</div>
-                            <div class="text-sm text-gray-800 font-medium">$<?php echo htmlspecialchars(formatMoney($shipment['shipment_worth'])); ?></div>
-                        </div>
-                        <?php endif; ?>
-                        <?php if (!empty($shipment['base_cost'])): ?>
-                        <div class="pb-4 border-b border-gray-100 last:border-0 last:pb-0">
-                            <div class="text-xs font-bold text-gray-500 uppercase mb-1 tracking-wider">Shipping Cost</div>
-                            <div class="text-sm text-gray-800 font-medium">$<?php echo htmlspecialchars(formatMoney($shipment['base_cost'])); ?></div>
-                        </div>
-                        <?php endif; ?>
-                        <?php if (!empty($shipment['clearance_cost'])): ?>
-                        <div class="pb-4 border-b border-gray-100 last:border-0 last:pb-0">
-                            <div class="text-xs font-bold text-gray-500 uppercase mb-1 tracking-wider">Clearance Cost</div>
-                            <div class="text-sm text-gray-800 font-medium">$<?php echo htmlspecialchars(formatMoney($shipment['clearance_cost'])); ?></div>
-                        </div>
-                        <?php endif; ?>
-                        <?php $totalDue = getShipmentTotalDue($shipment); if ($totalDue !== null): ?>
-                        <div class="pb-4 border-b border-gray-100 last:border-0 last:pb-0">
-                            <div class="text-xs font-bold text-gray-500 uppercase mb-1 tracking-wider">Total Due</div>
-                            <div class="text-lg font-bold text-yellow-600">$<?php echo htmlspecialchars(formatMoney($totalDue)); ?></div>
                         </div>
                         <?php endif; ?>
                         <?php if (!empty($shipment['pickup_location']) || (!empty($shipment['pickup_latitude']) && !empty($shipment['pickup_longitude']))): ?>
