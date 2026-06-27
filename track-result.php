@@ -319,34 +319,34 @@ include __DIR__ . '/includes/header.php';
         $hasCostBand = !empty($shipment['base_cost']) || !empty($shipment['clearance_cost']) || $totalDue !== null;
         if ($hasCostBand):
         ?>
-        <section class="track-cost-band mb-8 rounded-2xl overflow-hidden shadow-2xl border-2 border-amber-700/40 bg-gradient-to-br from-amber-950 via-amber-700 to-yellow-400 px-5 py-6 md:px-8 md:py-8" aria-label="Shipment costs">
-            <div class="flex items-center gap-2 mb-5">
-                <span class="material-symbols-outlined text-yellow-200 text-2xl">payments</span>
-                <h2 class="text-white font-extrabold uppercase tracking-widest text-sm md:text-base">Payment Summary</h2>
+        <section class="track-cost-band mb-8 rounded-lg border border-stone-200/90 bg-gradient-to-br from-white via-stone-50 to-amber-50/40 px-4 py-4 md:px-5 md:py-5 shadow-sm" aria-label="Shipment costs">
+            <div class="flex items-center gap-2 mb-3 pb-3 border-b border-stone-200/70">
+                <span class="material-symbols-outlined text-amber-600/80 text-lg">payments</span>
+                <h2 class="text-stone-600 font-semibold uppercase tracking-[0.12em] text-[11px]">Payment Summary</h2>
             </div>
-            <div class="track-cost-band-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="track-cost-band-grid grid grid-cols-2 lg:grid-cols-4 gap-2.5 md:gap-3">
                 <?php if (!empty($shipment['base_cost'])): ?>
-                <div class="track-cost-card bg-white rounded-xl shadow-lg border border-amber-100 px-5 py-5 flex flex-col gap-1 min-h-[110px] justify-center">
-                    <span class="track-cost-label text-[11px] font-bold uppercase tracking-wider text-stone-500">Shipping Cost</span>
-                    <span class="track-cost-value text-2xl md:text-3xl font-extrabold text-stone-900">$<?php echo htmlspecialchars(formatMoney($shipment['base_cost'])); ?></span>
+                <div class="track-cost-card bg-white/90 rounded-md border border-stone-100 px-3 py-2.5 flex flex-col gap-0.5 shadow-sm">
+                    <span class="track-cost-label text-[10px] font-semibold uppercase tracking-wider text-stone-400">Shipping Cost</span>
+                    <span class="track-cost-value text-base md:text-lg font-semibold text-stone-800 tabular-nums">$<?php echo htmlspecialchars(formatMoney($shipment['base_cost'])); ?></span>
                 </div>
                 <?php endif; ?>
                 <?php if (!empty($shipment['clearance_cost'])): ?>
-                <div class="track-cost-card bg-white rounded-xl shadow-lg border border-amber-100 px-5 py-5 flex flex-col gap-1 min-h-[110px] justify-center">
-                    <span class="track-cost-label text-[11px] font-bold uppercase tracking-wider text-stone-500">Clearance Cost</span>
-                    <span class="track-cost-value text-2xl md:text-3xl font-extrabold text-stone-900">$<?php echo htmlspecialchars(formatMoney($shipment['clearance_cost'])); ?></span>
+                <div class="track-cost-card bg-white/90 rounded-md border border-stone-100 px-3 py-2.5 flex flex-col gap-0.5 shadow-sm">
+                    <span class="track-cost-label text-[10px] font-semibold uppercase tracking-wider text-stone-400">Clearance Cost</span>
+                    <span class="track-cost-value text-base md:text-lg font-semibold text-stone-800 tabular-nums">$<?php echo htmlspecialchars(formatMoney($shipment['clearance_cost'])); ?></span>
                 </div>
                 <?php endif; ?>
                 <?php if (!empty($shipment['shipment_worth'])): ?>
-                <div class="track-cost-card bg-white rounded-xl shadow-lg border border-amber-100 px-5 py-5 flex flex-col gap-1 min-h-[110px] justify-center">
-                    <span class="track-cost-label text-[11px] font-bold uppercase tracking-wider text-stone-500">Shipment Worth</span>
-                    <span class="track-cost-value text-2xl md:text-3xl font-extrabold text-stone-900">$<?php echo htmlspecialchars(formatMoney($shipment['shipment_worth'])); ?></span>
+                <div class="track-cost-card bg-white/90 rounded-md border border-stone-100 px-3 py-2.5 flex flex-col gap-0.5 shadow-sm">
+                    <span class="track-cost-label text-[10px] font-semibold uppercase tracking-wider text-stone-400">Shipment Worth</span>
+                    <span class="track-cost-value text-base md:text-lg font-semibold text-stone-800 tabular-nums">$<?php echo htmlspecialchars(formatMoney($shipment['shipment_worth'])); ?></span>
                 </div>
                 <?php endif; ?>
                 <?php if ($totalDue !== null): ?>
-                <div class="track-cost-card track-cost-card-total bg-white rounded-xl shadow-xl border-2 border-amber-500 px-5 py-5 flex flex-col gap-1 min-h-[110px] justify-center sm:col-span-2 lg:col-span-1 ring-4 ring-amber-200/50">
-                    <span class="track-cost-label text-[11px] font-bold uppercase tracking-wider text-amber-800">Total Due</span>
-                    <span class="track-cost-value track-cost-value-total text-3xl md:text-4xl font-black text-amber-900">$<?php echo htmlspecialchars(formatMoney($totalDue)); ?></span>
+                <div class="track-cost-card track-cost-card-total bg-white rounded-md border border-amber-200/60 px-3 py-2.5 flex flex-col gap-0.5 shadow-sm col-span-2 lg:col-span-1">
+                    <span class="track-cost-label text-[10px] font-semibold uppercase tracking-wider text-amber-700/70">Total Due</span>
+                    <span class="track-cost-value track-cost-value-total text-lg md:text-xl font-bold text-stone-900 tabular-nums">$<?php echo htmlspecialchars(formatMoney($totalDue)); ?></span>
                 </div>
                 <?php endif; ?>
             </div>
