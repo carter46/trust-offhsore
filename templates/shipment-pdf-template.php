@@ -11,7 +11,6 @@ if (!isset($shipment) || !$shipment) {
 // Only include if not already included (prevent double inclusion errors)
 if (!defined('DB_CONFIG_LOADED')) {
     require_once __DIR__ . '/../config.php';
-    define('DB_CONFIG_LOADED', true);
 }
 if (!function_exists('getSetting')) {
     require_once __DIR__ . '/../includes/functions.php';
