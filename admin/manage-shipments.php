@@ -58,6 +58,79 @@ if (!empty($events)) {
 // Handle updates (single Save action)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $shipmentId) {
     if ($_POST['action'] === 'save') {
+        // --- Shipment details ---
+        $senderName = sanitizeInput($_POST['sender_name'] ?? '');
+        $senderAddress = sanitizeInput($_POST['sender_address'] ?? '');
+        $senderCity = sanitizeInput($_POST['sender_city'] ?? '');
+        $senderState = sanitizeInput($_POST['sender_state'] ?? '');
+        $senderZip = sanitizeInput($_POST['sender_zip'] ?? '');
+        $senderCountry = sanitizeInput($_POST['sender_country'] ?? 'United States');
+        $senderEmail = sanitizeInput($_POST['sender_email'] ?? '');
+        $senderPhone = sanitizeInput($_POST['sender_phone'] ?? '');
+
+        $recipientName = sanitizeInput($_POST['recipient_name'] ?? '');
+        $recipientAddress = sanitizeInput($_POST['recipient_address'] ?? '');
+        $recipientCity = sanitizeInput($_POST['recipient_city'] ?? '');
+        $recipientState = sanitizeInput($_POST['recipient_state'] ?? '');
+        $recipientZip = sanitizeInput($_POST['recipient_zip'] ?? '');
+        $recipientCountry = sanitizeInput($_POST['recipient_country'] ?? 'United States');
+        $recipientEmail = sanitizeInput($_POST['recipient_email'] ?? '');
+        $recipientPhone = sanitizeInput($_POST['recipient_phone'] ?? '');
+
+        $pickupLocation = sanitizeInput($_POST['pickup_location'] ?? '');
+        $pickupLatitude = $_POST['pickup_latitude'] !== '' ? floatval($_POST['pickup_latitude']) : null;
+        $pickupLongitude = $_POST['pickup_longitude'] !== '' ? floatval($_POST['pickup_longitude']) : null;
+        $dropoffLocation = sanitizeInput($_POST['dropoff_location'] ?? '');
+        $dropoffLatitude = $_POST['dropoff_latitude'] !== '' ? floatval($_POST['dropoff_latitude']) : null;
+        $dropoffLongitude = $_POST['dropoff_longitude'] !== '' ? floatval($_POST['dropoff_longitude']) : null;
+
+        $weight = $_POST['weight'] !== '' ? floatval($_POST['weight']) : null;
+        $dimensions = sanitizeInput($_POST['dimensions'] ?? '');
+        $serviceType = sanitizeInput($_POST['service_type'] ?? '');
+        $shipmentStatus = sanitizeInput($_POST['shipment_status'] ?? '');
+        $estimatedDelivery = sanitizeInput($_POST['estimated_delivery'] ?? '');
+        if ($estimatedDelivery === '') {
+            $estimatedDelivery = null;
+        }
+        $referenceNumber = sanitizeInput($_POST['reference_number'] ?? '');
+
+        $shipmentWorth = $_POST['shipment_worth'] !== '' ? floatval($_POST['shipment_worth']) : null;
+        $baseCost = $_POST['base_cost'] !== '' ? floatval($_POST['base_cost']) : null;
+        $clearanceCost = $_POST['clearance_cost'] !== '' ? floatval($_POST['clearance_cost']) : null;
+        $totalCost = null;
+        if ($baseCost !== null || $clearanceCost !== null) {
+            $totalCost = ($baseCost ?? 0) + ($clearanceCost ?? 0);
+        }
+
+        if ($senderName === '' || $senderAddress === '' || $recipientName === '' || $recipientAddress === '' || $serviceType === '' || $shipmentStatus === '') {
+            header('Location: /admin/manage-shipments.php?id=' . $shipmentId . '&error=' . urlencode('Please fill in required sender, recipient, service, and status fields.'));
+            exit;
+        }
+
+        $updShipment = $conn->prepare("UPDATE shipments SET
+            sender_name = ?, sender_address = ?, sender_city = ?, sender_state = ?, sender_zip = ?, sender_country = ?, sender_email = ?, sender_phone = ?,
+            recipient_name = ?, recipient_address = ?, recipient_city = ?, recipient_state = ?, recipient_zip = ?, recipient_country = ?, recipient_email = ?, recipient_phone = ?,
+            pickup_location = ?, pickup_latitude = ?, pickup_longitude = ?,
+            dropoff_location = ?, dropoff_latitude = ?, dropoff_longitude = ?,
+            weight = ?, dimensions = ?, service_type = ?, status = ?, estimated_delivery = ?, reference_number = ?,
+            shipment_worth = ?, base_cost = ?, clearance_cost = ?, total_cost = ?
+            WHERE id = ?");
+
+        if ($updShipment) {
+            $updShipment->bind_param(
+                'ssssssssssssssssssddssdsssssddddi',
+                $senderName, $senderAddress, $senderCity, $senderState, $senderZip, $senderCountry, $senderEmail, $senderPhone,
+                $recipientName, $recipientAddress, $recipientCity, $recipientState, $recipientZip, $recipientCountry, $recipientEmail, $recipientPhone,
+                $pickupLocation, $pickupLatitude, $pickupLongitude,
+                $dropoffLocation, $dropoffLatitude, $dropoffLongitude,
+                $weight, $dimensions, $serviceType, $shipmentStatus, $estimatedDelivery, $referenceNumber,
+                $shipmentWorth, $baseCost, $clearanceCost, $totalCost,
+                $shipmentId
+            );
+            $updShipment->execute();
+            $updShipment->close();
+        }
+
         // --- Remark (shipment-level, shown under Travel History) ---
         $remark = sanitizeInput($_POST['remark'] ?? '');
 
@@ -138,7 +211,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $shipmen
             curl_close($ch);
         }
 
-        header('Location: /admin/manage-shipments.php?id=' . $shipmentId);
+        header('Location: /admin/manage-shipments.php?id=' . $shipmentId . '&saved=1');
         exit;
     }
 }
@@ -158,8 +231,19 @@ include __DIR__ . '/includes/admin-header.php';
 ?>
 <div class="mb-8">
     <h1 class="text-3xl font-light text-gray-800 dark:text-white mb-2">Manage Shipments</h1>
-    <p class="text-gray-600 dark:text-gray-400">View and update shipment status</p>
+    <p class="text-gray-600 dark:text-gray-400">View and edit shipment details, costs, and tracking events</p>
 </div>
+
+<?php if (isset($_GET['saved']) && $_GET['saved'] == '1'): ?>
+    <div class="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 px-4 py-3 rounded mb-6">
+        Shipment updated successfully.
+    </div>
+<?php endif; ?>
+<?php if (!empty($_GET['error'])): ?>
+    <div class="bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-6">
+        <?php echo htmlspecialchars($_GET['error']); ?>
+    </div>
+<?php endif; ?>
 
 <?php if (isset($_GET['deleted']) && $_GET['deleted'] == '1'): ?>
     <div class="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 px-4 py-3 rounded mb-6">
@@ -178,8 +262,7 @@ include __DIR__ . '/includes/admin-header.php';
         <h2 class="text-xl font-bold text-gray-800 dark:text-white mb-4">Shipment: <?php echo htmlspecialchars($shipment['tracking_number']); ?></h2>
         
         <div class="mb-6">
-            <p class="text-sm text-gray-600 dark:text-gray-400 mb-2"><strong>Status:</strong> <?php echo htmlspecialchars($shipment['status']); ?></p>
-            <p class="text-sm text-gray-600 dark:text-gray-400"><strong>Service:</strong> <?php echo htmlspecialchars($shipment['service_type']); ?></p>
+            <p class="text-sm text-gray-600 dark:text-gray-400 mb-2"><strong>Tracking Number:</strong> <?php echo htmlspecialchars($shipment['tracking_number']); ?></p>
         </div>
 
         <div class="mb-6">
@@ -192,10 +275,180 @@ include __DIR__ . '/includes/admin-header.php';
             </form>
         </div>
 
-        <!-- Save (Remark + optional tracking event) -->
+        <!-- Save (details + remark + optional tracking event) -->
         <form method="POST" action="" class="border-t border-gray-200 dark:border-gray-700 pt-6" id="shipment-save-form">
             <input type="hidden" name="action" value="save">
 
+            <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-4">Sender Information</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="sender_name">Name *</label>
+                    <input type="text" id="sender_name" name="sender_name" required value="<?php echo htmlspecialchars($shipment['sender_name']); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="sender_address">Address *</label>
+                    <input type="text" id="sender_address" name="sender_address" required value="<?php echo htmlspecialchars($shipment['sender_address']); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="sender_city">City</label>
+                    <input type="text" id="sender_city" name="sender_city" value="<?php echo htmlspecialchars($shipment['sender_city'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="sender_state">State</label>
+                    <input type="text" id="sender_state" name="sender_state" value="<?php echo htmlspecialchars($shipment['sender_state'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="sender_zip">ZIP</label>
+                    <input type="text" id="sender_zip" name="sender_zip" value="<?php echo htmlspecialchars($shipment['sender_zip'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="sender_country">Country</label>
+                    <input type="text" id="sender_country" name="sender_country" value="<?php echo htmlspecialchars($shipment['sender_country'] ?? 'United States'); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="sender_email">Email</label>
+                    <input type="email" id="sender_email" name="sender_email" value="<?php echo htmlspecialchars($shipment['sender_email'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="sender_phone">Phone</label>
+                    <input type="text" id="sender_phone" name="sender_phone" value="<?php echo htmlspecialchars($shipment['sender_phone'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+            </div>
+
+            <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-4">Recipient Information</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="recipient_name">Name *</label>
+                    <input type="text" id="recipient_name" name="recipient_name" required value="<?php echo htmlspecialchars($shipment['recipient_name']); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="recipient_address">Address *</label>
+                    <input type="text" id="recipient_address" name="recipient_address" required value="<?php echo htmlspecialchars($shipment['recipient_address']); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="recipient_city">City</label>
+                    <input type="text" id="recipient_city" name="recipient_city" value="<?php echo htmlspecialchars($shipment['recipient_city'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="recipient_state">State</label>
+                    <input type="text" id="recipient_state" name="recipient_state" value="<?php echo htmlspecialchars($shipment['recipient_state'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="recipient_zip">ZIP</label>
+                    <input type="text" id="recipient_zip" name="recipient_zip" value="<?php echo htmlspecialchars($shipment['recipient_zip'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="recipient_country">Country</label>
+                    <input type="text" id="recipient_country" name="recipient_country" value="<?php echo htmlspecialchars($shipment['recipient_country'] ?? 'United States'); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="recipient_email">Email</label>
+                    <input type="email" id="recipient_email" name="recipient_email" value="<?php echo htmlspecialchars($shipment['recipient_email'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="recipient_phone">Phone</label>
+                    <input type="text" id="recipient_phone" name="recipient_phone" value="<?php echo htmlspecialchars($shipment['recipient_phone'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+            </div>
+
+            <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-4">Shipment Details</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="service_type">Service *</label>
+                    <input type="text" id="service_type" name="service_type" required value="<?php echo htmlspecialchars($shipment['service_type']); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="shipment_status">Status *</label>
+                    <select id="shipment_status" name="shipment_status" required
+                            class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                        <?php
+                        $statusOptions = ['Label Created', 'Pending', 'Picked Up', 'In Transit', 'On Hold', 'Out for Delivery', 'Delivered', 'Cancelled', 'Returned', 'Exception'];
+                        foreach ($statusOptions as $opt):
+                        ?>
+                        <option value="<?php echo htmlspecialchars($opt); ?>"<?php echo ($shipment['status'] === $opt) ? ' selected' : ''; ?>><?php echo htmlspecialchars($opt); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="weight">Weight (lbs)</label>
+                    <input type="number" step="0.01" min="0" id="weight" name="weight" value="<?php echo htmlspecialchars($shipment['weight'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="dimensions">Dimensions</label>
+                    <input type="text" id="dimensions" name="dimensions" value="<?php echo htmlspecialchars($shipment['dimensions'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="estimated_delivery">Estimated Delivery</label>
+                    <input type="date" id="estimated_delivery" name="estimated_delivery" value="<?php echo htmlspecialchars($shipment['estimated_delivery'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="reference_number">Reference Number</label>
+                    <input type="text" id="reference_number" name="reference_number" value="<?php echo htmlspecialchars($shipment['reference_number'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="pickup_location">Pickup Location</label>
+                    <input type="text" id="pickup_location" name="pickup_location" value="<?php echo htmlspecialchars($shipment['pickup_location'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                    <input type="hidden" id="pickup_latitude" name="pickup_latitude" value="<?php echo htmlspecialchars($shipment['pickup_latitude'] ?? ''); ?>">
+                    <input type="hidden" id="pickup_longitude" name="pickup_longitude" value="<?php echo htmlspecialchars($shipment['pickup_longitude'] ?? ''); ?>">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="dropoff_location">Dropoff Location</label>
+                    <input type="text" id="dropoff_location" name="dropoff_location" value="<?php echo htmlspecialchars($shipment['dropoff_location'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                    <input type="hidden" id="dropoff_latitude" name="dropoff_latitude" value="<?php echo htmlspecialchars($shipment['dropoff_latitude'] ?? ''); ?>">
+                    <input type="hidden" id="dropoff_longitude" name="dropoff_longitude" value="<?php echo htmlspecialchars($shipment['dropoff_longitude'] ?? ''); ?>">
+                </div>
+            </div>
+
+            <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-4">Costs</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="shipment_worth">Shipment Worth ($)</label>
+                    <input type="number" step="0.01" min="0" id="shipment_worth" name="shipment_worth" value="<?php echo htmlspecialchars($shipment['shipment_worth'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="base_cost">Shipping Cost ($)</label>
+                    <input type="number" step="0.01" min="0" id="base_cost" name="base_cost" value="<?php echo htmlspecialchars($shipment['base_cost'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="clearance_cost">Clearance Cost ($)</label>
+                    <input type="number" step="0.01" min="0" id="clearance_cost" name="clearance_cost" value="<?php echo htmlspecialchars($shipment['clearance_cost'] ?? ''); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="total_cost">Total Due ($)</label>
+                    <input type="text" id="total_cost" name="total_cost" readonly
+                           value="<?php $editTotal = getShipmentTotalDue($shipment); echo $editTotal !== null ? '$' . formatMoney($editTotal) : '$0.00'; ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-800 text-gray-800 dark:text-white font-semibold">
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Auto-calculated: Shipping + Clearance</p>
+                </div>
+            </div>
+
+            <div class="border-t border-gray-200 dark:border-gray-700 pt-6">
             <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-4">Remark</h3>
             <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="remark">Remark (shown on tracking page)</label>
             <textarea id="remark" name="remark" rows="3"
@@ -252,9 +505,10 @@ include __DIR__ . '/includes/admin-header.php';
                 </div>
             </div>
             </div>
+            </div>
 
             <button type="submit" class="mt-4 bg-primary hover:bg-primary-dark text-white font-bold py-2 px-6 rounded uppercase tracking-wide transition-colors">
-                Save
+                Save Changes
             </button>
         </form>
         
@@ -343,6 +597,36 @@ include __DIR__ . '/includes/admin-header.php';
 
 <?php if ($shipment): ?>
 <script>
+function calculateEditTotalCost() {
+    const shippingCost = parseFloat(document.getElementById('base_cost')?.value) || 0;
+    const clearanceCost = parseFloat(document.getElementById('clearance_cost')?.value) || 0;
+    const totalField = document.getElementById('total_cost');
+    if (totalField) {
+        totalField.value = '$' + (shippingCost + clearanceCost).toFixed(2);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    ['base_cost', 'clearance_cost'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('input', calculateEditTotalCost);
+            el.addEventListener('blur', calculateEditTotalCost);
+        }
+    });
+
+    const form = document.getElementById('shipment-save-form');
+    if (form) {
+        form.addEventListener('submit', function () {
+            calculateEditTotalCost();
+            const totalField = document.getElementById('total_cost');
+            if (totalField) {
+                totalField.value = totalField.value.replace('$', '').trim();
+            }
+        });
+    }
+});
+
 // Initialize Google Places for the "Current Location" field (Places-only)
 (function () {
   const form = document.getElementById('shipment-save-form');
