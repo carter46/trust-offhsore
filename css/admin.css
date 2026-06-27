@@ -1,0 +1,136 @@
+/**
+ * Admin Panel Styles
+ * Mobile-responsive admin styles matching design pattern
+ */
+
+/* Mobile-first responsive design */
+@media (max-width: 768px) {
+    .admin-table {
+        display: block;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    .admin-table thead {
+        display: none;
+    }
+    
+    .admin-table tbody tr {
+        display: block;
+        margin-bottom: 1rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.5rem;
+        padding: 1rem;
+    }
+    
+    .admin-table tbody td {
+        display: block;
+        text-align: right;
+        padding: 0.5rem 0;
+        border: none;
+    }
+    
+    .admin-table tbody td::before {
+        content: attr(data-label);
+        float: left;
+        font-weight: bold;
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        color: #6b7280;
+    }
+}
+
+/* Touch-friendly buttons */
+button, .btn, a.btn {
+    min-height: 44px;
+    min-width: 44px;
+    touch-action: manipulation;
+}
+
+/* Smooth transitions */
+* {
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+/* Focus states for accessibility */
+input:focus, select:focus, textarea:focus, button:focus {
+    outline: 2px solid #4D148C;
+    outline-offset: 2px;
+}
+
+/* Loading states */
+.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+/* Card styles */
+.card {
+    background: white;
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+    padding: 1.5rem;
+}
+
+.dark .card {
+    background: #374151;
+}
+
+/* Form styles */
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-label {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 0.5rem;
+    color: #374151;
+}
+
+.dark .form-label {
+    color: #e5e7eb;
+}
+
+.form-input {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.375rem;
+    background: white;
+}
+
+.dark .form-input {
+    background: #1f2937;
+    border-color: #4b5563;
+    color: #e5e7eb;
+}
+
+/* Status badges */
+.status-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+/* Responsive navigation */
+@media (max-width: 768px) {
+    nav .hidden {
+        display: none;
+    }
+    
+    nav .mobile-menu {
+        display: block;
+    }
+}
+
+/* Print styles */
+@media print {
+    nav, footer, .no-print {
+        display: none;
+    }
+}
+

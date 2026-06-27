@@ -1,0 +1,27 @@
+# Enable Rewrite Engine
+RewriteEngine On
+
+# Redirect .php to clean URL (301 permanent redirect) - MUST BE FIRST
+# Only redirect direct browser requests to .php files
+RewriteCond %{THE_REQUEST} \s/+([^.\s?]*?)\.php(\?[^\s]*)?\s [NC]
+RewriteCond %{REQUEST_URI} !^/admin/
+RewriteCond %{REQUEST_URI} !^/api/
+RewriteRule ^ /%1%2 [R=301,L]
+
+# Remove .php extension from URLs (public pages only)
+# Exclude admin and API directories
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_URI} !^/admin/
+RewriteCond %{REQUEST_URI} !^/api/
+RewriteRule ^([^\.]+)$ $1.php [NC,L]
+
+# Prevent directory listing
+Options -Indexes
+
+# Security headers
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+</IfModule>
