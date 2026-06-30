@@ -440,9 +440,10 @@ include __DIR__ . '/includes/admin-header.php';
             </div>
             
             <div>
-                <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="estimated_delivery">Estimated Delivery</label>
-                <input type="date" id="estimated_delivery" name="estimated_delivery"
+                <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="estimated_delivery">Estimated Delivery Date &amp; Time</label>
+                <input type="datetime-local" id="estimated_delivery" name="estimated_delivery"
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Optional. Set both date and delivery time.</p>
             </div>
 
             <div>

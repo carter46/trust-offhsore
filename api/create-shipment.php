@@ -87,7 +87,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $dimensions = isset($input['dimensions']) && !empty($input['dimensions']) ? sanitizeInput($input['dimensions']) : null;
     $serviceType = sanitizeInput($input['service_type']);
     $status = isset($input['status']) && !empty($input['status']) ? sanitizeInput($input['status']) : 'Pending';
-    $estimatedDelivery = isset($input['estimated_delivery']) && !empty($input['estimated_delivery']) ? sanitizeInput($input['estimated_delivery']) : null;
+    $estimatedDelivery = isset($input['estimated_delivery']) && !empty($input['estimated_delivery'])
+        ? parseDateTimeInput($input['estimated_delivery'])
+        : null;
     $shipmentCreatedAt = isset($input['shipment_created_at']) && !empty($input['shipment_created_at'])
         ? parseDateTimeInput($input['shipment_created_at'])
         : date('Y-m-d H:i:s');

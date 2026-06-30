@@ -88,9 +88,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $shipmen
         $dimensions = sanitizeInput($_POST['dimensions'] ?? '');
         $serviceType = sanitizeInput($_POST['service_type'] ?? '');
         $shipmentStatus = sanitizeInput($_POST['shipment_status'] ?? '');
-        $estimatedDelivery = sanitizeInput($_POST['estimated_delivery'] ?? '');
-        if ($estimatedDelivery === '') {
-            $estimatedDelivery = null;
+        $estimatedDelivery = parseDateTimeInput($_POST['estimated_delivery'] ?? '');
+        if ($estimatedDelivery === null && !empty($shipment['estimated_delivery'])) {
+            $estimatedDelivery = $shipment['estimated_delivery'];
         }
         $shipmentCreatedAt = parseDateTimeInput($_POST['shipment_created_at'] ?? '');
         if ($shipmentCreatedAt === null && !empty($shipment['shipment_created_at'])) {
@@ -124,7 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $shipmen
 
         if ($updShipment) {
             $updShipment->bind_param(
-                'ssssssssssssssssddsddssssssddddi',
+                'sssssssssssssssssddssddssssssddddi',
                 $senderName, $senderAddress, $senderCity, $senderState, $senderZip, $senderCountry, $senderEmail, $senderPhone,
                 $recipientName, $recipientAddress, $recipientCity, $recipientState, $recipientZip, $recipientCountry, $recipientEmail, $recipientPhone,
                 $pickupLocation, $pickupLatitude, $pickupLongitude,
@@ -436,9 +436,10 @@ include __DIR__ . '/includes/admin-header.php';
                            class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
                 </div>
                 <div>
-                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="estimated_delivery">Estimated Delivery</label>
-                    <input type="date" id="estimated_delivery" name="estimated_delivery" value="<?php echo htmlspecialchars($shipment['estimated_delivery'] ?? ''); ?>"
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="estimated_delivery">Estimated Delivery Date &amp; Time</label>
+                    <input type="datetime-local" id="estimated_delivery" name="estimated_delivery" value="<?php echo htmlspecialchars(formatDateTimeLocalValue($shipment['estimated_delivery'] ?? '')); ?>"
                            class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Date and time shown on the public tracking page.</p>
                 </div>
                 <div>
                     <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="shipment_created_at">Creation Date &amp; Time</label>

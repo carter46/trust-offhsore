@@ -237,11 +237,11 @@ include __DIR__ . '/includes/header.php';
                             <span class="text-sm font-bold uppercase tracking-wider text-slate-800"><?php echo htmlspecialchars($shipment['status']); ?></span>
                         </div>
                         <h2 class="text-4xl md:text-5xl font-light text-gray-800 mb-2">
-                            <?php echo formatDate($shipment['estimated_delivery'] ?: 'now', 'l, m/d/Y'); ?>
+                            <?php echo !empty($shipment['estimated_delivery']) ? formatDateTime($shipment['estimated_delivery'], 'l, m/d/Y') : formatDate('now', 'l, m/d/Y'); ?>
                         </h2>
                         <p class="text-lg text-gray-600 mb-6 font-light">
                             <?php if ($shipment['estimated_delivery']): ?>
-                                Estimated delivery by <span class="font-medium"><?php echo date('g:i A', strtotime($shipment['estimated_delivery'])); ?></span>
+                                Estimated delivery by <span class="font-medium"><?php echo formatDateTime($shipment['estimated_delivery'], 'g:i A'); ?></span>
                             <?php else: ?>
                                 Delivery information will be updated soon
                             <?php endif; ?>
