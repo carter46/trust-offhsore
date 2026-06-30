@@ -88,6 +88,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $serviceType = sanitizeInput($input['service_type']);
     $status = isset($input['status']) && !empty($input['status']) ? sanitizeInput($input['status']) : 'Pending';
     $estimatedDelivery = isset($input['estimated_delivery']) && !empty($input['estimated_delivery']) ? sanitizeInput($input['estimated_delivery']) : null;
+    $shipmentCreatedAt = isset($input['shipment_created_at']) && !empty($input['shipment_created_at'])
+        ? parseDateTimeInput($input['shipment_created_at'])
+        : date('Y-m-d H:i:s');
     $itemImage = isset($input['item_image']) && !empty($input['item_image']) ? sanitizeInput($input['item_image']) : null;
     $adminComment = isset($input['admin_comment']) && !empty($input['admin_comment']) ? sanitizeInput($input['admin_comment']) : null;
     
@@ -100,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     // Insert shipment with all fields (38 placeholders)
-    $stmt = $conn->prepare("INSERT INTO shipments (tracking_number, sender_name, sender_address, sender_city, sender_state, sender_zip, sender_country, sender_email, sender_phone, sender_latitude, sender_longitude, recipient_name, recipient_address, recipient_city, recipient_state, recipient_zip, recipient_country, recipient_email, recipient_phone, recipient_latitude, recipient_longitude, pickup_location, pickup_latitude, pickup_longitude, dropoff_location, dropoff_latitude, dropoff_longitude, weight, dimensions, service_type, status, estimated_delivery, reference_number, item_image, shipment_worth, base_cost, clearance_cost, total_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt = $conn->prepare("INSERT INTO shipments (tracking_number, sender_name, sender_address, sender_city, sender_state, sender_zip, sender_country, sender_email, sender_phone, sender_latitude, sender_longitude, recipient_name, recipient_address, recipient_city, recipient_state, recipient_zip, recipient_country, recipient_email, recipient_phone, recipient_latitude, recipient_longitude, pickup_location, pickup_latitude, pickup_longitude, dropoff_location, dropoff_latitude, dropoff_longitude, weight, dimensions, service_type, status, estimated_delivery, shipment_created_at, reference_number, item_image, shipment_worth, base_cost, clearance_cost, total_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     
     if (!$stmt) {
         // #region agent log
@@ -142,7 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     //             pickup(1s) + pickup_coords(2d) + dropoff(1s) + dropoff_coords(2d) + 
     //             weight(1d) + other_fields(6s) + costs(3d)
     // Bind string: 37 params + clearance_cost (1d) = 38 chars
-    $bindString = "sssssssssddssssssssddsddsdddssssssdddd";
+    $bindString = "sssssssssddssssssssddsddsdddsssssssdddd";
     
     $stmt->bind_param($bindString, 
         $trackingNumber, $senderName, $senderAddress, $senderCity, $senderState, $senderZip, $senderCountry,
@@ -153,7 +156,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $recipientLatitude, $recipientLongitude,
         $pickupLocation, $pickupLatitude, $pickupLongitude,
         $dropoffLocation, $dropoffLatitude, $dropoffLongitude,
-        $weight, $dimensions, $serviceType, $status, $estimatedDelivery, $referenceNumber, $itemImage,
+        $weight, $dimensions, $serviceType, $status, $estimatedDelivery, $shipmentCreatedAt, $referenceNumber, $itemImage,
         $shipmentWorth, $baseCost, $clearanceCost, $totalCost
     );
     
@@ -186,17 +189,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $eventLat = $pickupLatitude;
         $eventLng = $pickupLongitude;
         
-        $eventStmt = $conn->prepare("INSERT INTO tracking_events (shipment_id, event_type, description, location, latitude, longitude, event_date) VALUES (?, ?, ?, ?, ?, ?, NOW())");
-        $eventStmt->bind_param("isssdd", $shipmentId, $eventType, $description, $location, $eventLat, $eventLng);
+        $eventStmt = $conn->prepare("INSERT INTO tracking_events (shipment_id, event_type, description, location, latitude, longitude, event_date) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $eventStmt->bind_param("isssdds", $shipmentId, $eventType, $description, $location, $eventLat, $eventLng, $shipmentCreatedAt);
         $eventStmt->execute();
         $eventStmt->close();
         
         // Create tracking event for admin comment if provided
         if ($adminComment) {
-            $commentEventStmt = $conn->prepare("INSERT INTO tracking_events (shipment_id, event_type, description, location, event_date) VALUES (?, ?, ?, ?, NOW())");
+            $commentEventStmt = $conn->prepare("INSERT INTO tracking_events (shipment_id, event_type, description, location, event_date) VALUES (?, ?, ?, ?, ?)");
             $commentEventType = 'Admin Note';
             $commentLocation = $pickupLocation ?: ($senderCity ? $senderCity . ', ' . $senderState : 'Origin');
-            $commentEventStmt->bind_param("isss", $shipmentId, $commentEventType, $adminComment, $commentLocation);
+            $commentEventStmt->bind_param("issss", $shipmentId, $commentEventType, $adminComment, $commentLocation, $shipmentCreatedAt);
             $commentEventStmt->execute();
             $commentEventStmt->close();
         }

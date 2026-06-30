@@ -484,6 +484,37 @@ function getShipmentTotalDue($shipment) {
 }
 
 /**
+ * Parse datetime from form input (datetime-local or date string).
+ */
+function parseDateTimeInput($value) {
+    if ($value === null || $value === '') {
+        return null;
+    }
+    $ts = strtotime($value);
+    return $ts ? date('Y-m-d H:i:s', $ts) : null;
+}
+
+/**
+ * Display / business creation date for a shipment (editable by admin).
+ */
+function getShipmentCreatedAt($shipment) {
+    if (!empty($shipment['shipment_created_at'])) {
+        return $shipment['shipment_created_at'];
+    }
+    return $shipment['created_at'] ?? null;
+}
+
+/**
+ * Value for HTML datetime-local inputs.
+ */
+function formatDateTimeLocalValue($datetime) {
+    if (empty($datetime)) {
+        return '';
+    }
+    return date('Y-m-d\TH:i', strtotime($datetime));
+}
+
+/**
  * Get status badge class
  */
 function getStatusBadgeClass($status) {

@@ -92,6 +92,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $shipmen
         if ($estimatedDelivery === '') {
             $estimatedDelivery = null;
         }
+        $shipmentCreatedAt = parseDateTimeInput($_POST['shipment_created_at'] ?? '');
+        if ($shipmentCreatedAt === null && !empty($shipment['shipment_created_at'])) {
+            $shipmentCreatedAt = $shipment['shipment_created_at'];
+        } elseif ($shipmentCreatedAt === null) {
+            $shipmentCreatedAt = getShipmentCreatedAt($shipment);
+        }
         $referenceNumber = sanitizeInput($_POST['reference_number'] ?? '');
 
         $shipmentWorth = $_POST['shipment_worth'] !== '' ? floatval($_POST['shipment_worth']) : null;
@@ -112,23 +118,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $shipmen
             recipient_name = ?, recipient_address = ?, recipient_city = ?, recipient_state = ?, recipient_zip = ?, recipient_country = ?, recipient_email = ?, recipient_phone = ?,
             pickup_location = ?, pickup_latitude = ?, pickup_longitude = ?,
             dropoff_location = ?, dropoff_latitude = ?, dropoff_longitude = ?,
-            weight = ?, dimensions = ?, service_type = ?, status = ?, estimated_delivery = ?, reference_number = ?,
+            weight = ?, dimensions = ?, service_type = ?, status = ?, estimated_delivery = ?, shipment_created_at = ?, reference_number = ?,
             shipment_worth = ?, base_cost = ?, clearance_cost = ?, total_cost = ?
             WHERE id = ?");
 
         if ($updShipment) {
             $updShipment->bind_param(
-                'ssssssssssssssssssddssdsssssddddi',
+                'ssssssssssssssssddsddssssssddddi',
                 $senderName, $senderAddress, $senderCity, $senderState, $senderZip, $senderCountry, $senderEmail, $senderPhone,
                 $recipientName, $recipientAddress, $recipientCity, $recipientState, $recipientZip, $recipientCountry, $recipientEmail, $recipientPhone,
                 $pickupLocation, $pickupLatitude, $pickupLongitude,
                 $dropoffLocation, $dropoffLatitude, $dropoffLongitude,
-                $weight, $dimensions, $serviceType, $shipmentStatus, $estimatedDelivery, $referenceNumber,
+                $weight, $dimensions, $serviceType, $shipmentStatus, $estimatedDelivery, $shipmentCreatedAt, $referenceNumber,
                 $shipmentWorth, $baseCost, $clearanceCost, $totalCost,
                 $shipmentId
             );
             $updShipment->execute();
             $updShipment->close();
+        }
+
+        if ($shipmentCreatedAt) {
+            $labelStmt = $conn->prepare("SELECT id FROM tracking_events WHERE shipment_id = ? AND event_type = 'Label Created' ORDER BY event_date ASC, id ASC LIMIT 1");
+            $labelStmt->bind_param("i", $shipmentId);
+            $labelStmt->execute();
+            $labelRes = $labelStmt->get_result();
+            $labelRow = $labelRes ? $labelRes->fetch_assoc() : null;
+            $labelStmt->close();
+
+            if ($labelRow && !empty($labelRow['id'])) {
+                $labelId = (int) $labelRow['id'];
+                $syncStmt = $conn->prepare("UPDATE tracking_events SET event_date = ? WHERE id = ?");
+                $syncStmt->bind_param("si", $shipmentCreatedAt, $labelId);
+                $syncStmt->execute();
+                $syncStmt->close();
+            }
         }
 
         // --- Remark (shipment-level, shown under Travel History) ---
@@ -166,13 +189,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $shipmen
             }
         }
 
-        // --- Optional: Add tracking event ---
-        // We only add a tracking event if a status is selected (keeps "Save" safe for remark-only edits).
+        // --- Optional: Add tracking event OR update current location on latest event ---
         $eventType = sanitizeInput($_POST['event_type'] ?? '');
         $location = sanitizeInput($_POST['location'] ?? '');
-        $latitude = !empty($_POST['latitude']) ? floatval($_POST['latitude']) : null;
-        $longitude = !empty($_POST['longitude']) ? floatval($_POST['longitude']) : null;
+        $latitude = $_POST['latitude'] !== '' ? floatval($_POST['latitude']) : null;
+        $longitude = $_POST['longitude'] !== '' ? floatval($_POST['longitude']) : null;
         $description = sanitizeInput($_POST['description'] ?? '');
+
+        if ($eventType === '' && $location !== '' && $latitude !== null && $longitude !== null) {
+            $latestStmt = $conn->prepare("SELECT id FROM tracking_events WHERE shipment_id = ? AND event_type != 'Admin Note' ORDER BY event_date DESC, id DESC LIMIT 1");
+            $latestStmt->bind_param("i", $shipmentId);
+            $latestStmt->execute();
+            $latestRes = $latestStmt->get_result();
+            $latestRow = $latestRes ? $latestRes->fetch_assoc() : null;
+            $latestStmt->close();
+
+            if ($latestRow && !empty($latestRow['id'])) {
+                $latestId = (int) $latestRow['id'];
+                $locStmt = $conn->prepare("UPDATE tracking_events SET location = ?, latitude = ?, longitude = ? WHERE id = ?");
+                $locStmt->bind_param("sddi", $location, $latitude, $longitude, $latestId);
+                $locStmt->execute();
+                $locStmt->close();
+            }
+        }
 
         if ($eventType !== '') {
             // Auto-generate a reasonable description if admin leaves it empty.
@@ -402,6 +441,12 @@ include __DIR__ . '/includes/admin-header.php';
                            class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
                 </div>
                 <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="shipment_created_at">Creation Date &amp; Time</label>
+                    <input type="datetime-local" id="shipment_created_at" name="shipment_created_at" value="<?php echo htmlspecialchars(formatDateTimeLocalValue(getShipmentCreatedAt($shipment))); ?>"
+                           class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Shown on the tracking timeline. Defaults to when the shipment was first created.</p>
+                </div>
+                <div>
                     <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="reference_number">Reference Number</label>
                     <input type="text" id="reference_number" name="reference_number" value="<?php echo htmlspecialchars($shipment['reference_number'] ?? ''); ?>"
                            class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
@@ -490,7 +535,7 @@ include __DIR__ . '/includes/admin-header.php';
                     <input type="text" id="location" name="location"
                            value="<?php echo htmlspecialchars($currentLocationText); ?>"
                            class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
-                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Start typing and select a suggested location (Google Places).</p>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Start typing and select a suggested location (Google Places). Saving updates the map even if you do not add a new status event.</p>
                 </div>
                 
                 <div>
@@ -664,23 +709,26 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   form.addEventListener('submit', function (e) {
-    // Only enforce Places selection if the admin is adding a tracking event.
-    if (!wantsToAddEvent()) return;
+    const hasLocation = locationInput.value.trim() && latInput.value && lngInput.value;
 
-    if (!locationInput.value.trim()) {
-      e.preventDefault();
-      alert('Please enter a Current Location (select from suggestions) when adding a tracking event.');
-      return;
+    // Require Places selection when adding a tracking event OR when updating current location coords.
+    if (wantsToAddEvent() || hasLocation) {
+      if (!locationInput.value.trim()) {
+        e.preventDefault();
+        alert('Please enter a Current Location (select from suggestions).');
+        return;
+      }
+
+      if (!latInput.value || !lngInput.value) {
+        e.preventDefault();
+        alert('Please select a location from the suggestions so latitude/longitude can be saved.');
+        return;
+      }
     }
 
-    if (!latInput.value || !lngInput.value) {
-      e.preventDefault();
-      alert('Please select a location from the suggestions so latitude/longitude can be saved.');
-      return;
+    if (wantsToAddEvent()) {
+      maybeAutofillDescription();
     }
-
-    // Auto-fill description if left blank.
-    maybeAutofillDescription();
   });
 
   fetch('/api/settings.php?key=google_maps_api_key')

@@ -54,7 +54,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             'service_type' => $shipment['service_type'],
             'status' => $shipment['status'],
             'estimated_delivery' => $shipment['estimated_delivery'],
+            'shipment_created_at' => getShipmentCreatedAt($shipment),
             'reference_number' => $shipment['reference_number'],
+            'pickup_location' => $shipment['pickup_location'] ?? null,
+            'pickup_latitude' => $shipment['pickup_latitude'] ?? null,
+            'pickup_longitude' => $shipment['pickup_longitude'] ?? null,
+            'dropoff_location' => $shipment['dropoff_location'] ?? null,
+            'dropoff_latitude' => $shipment['dropoff_latitude'] ?? null,
+            'dropoff_longitude' => $shipment['dropoff_longitude'] ?? null,
             'created_at' => $shipment['created_at']
         ],
         'events' => $events

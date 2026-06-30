@@ -38,6 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'service_type' => $_POST['service_type'] ?? (getSetting('company_name', 'FedEx') . ' Ground'),
         'status' => $_POST['status'] ?? 'Pending',
         'estimated_delivery' => $_POST['estimated_delivery'] ?? '',
+        'shipment_created_at' => $_POST['shipment_created_at'] ?? '',
         'shipment_worth' => isset($_POST['shipment_worth']) && $_POST['shipment_worth'] !== '' ? $_POST['shipment_worth'] : '',
         'base_cost' => isset($_POST['base_cost']) && $_POST['base_cost'] !== '' ? $_POST['base_cost'] : '',
         'clearance_cost' => isset($_POST['clearance_cost']) && $_POST['clearance_cost'] !== '' ? $_POST['clearance_cost'] : '',
@@ -442,6 +443,13 @@ include __DIR__ . '/includes/admin-header.php';
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="estimated_delivery">Estimated Delivery</label>
                 <input type="date" id="estimated_delivery" name="estimated_delivery"
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+            </div>
+
+            <div>
+                <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="shipment_created_at">Creation Date &amp; Time</label>
+                <input type="datetime-local" id="shipment_created_at" name="shipment_created_at"
+                       class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Leave blank to use the current date and time.</p>
             </div>
             
             <div>

@@ -476,6 +476,12 @@ include __DIR__ . '/includes/header.php';
                             <div class="text-xs font-bold text-gray-500 uppercase mb-1 tracking-wider">Service</div>
                             <div class="text-sm text-gray-800 font-medium"><?php echo htmlspecialchars($shipment['service_type']); ?></div>
                         </div>
+                        <?php if (getShipmentCreatedAt($shipment)): ?>
+                        <div class="pb-4 border-b border-gray-100 last:border-0 last:pb-0">
+                            <div class="text-xs font-bold text-gray-500 uppercase mb-1 tracking-wider">Created On</div>
+                            <div class="text-sm text-gray-800 font-medium"><?php echo htmlspecialchars(formatDateTime(getShipmentCreatedAt($shipment))); ?></div>
+                        </div>
+                        <?php endif; ?>
                         <?php if ($shipment['weight']): ?>
                         <div class="pb-4 border-b border-gray-100 last:border-0 last:pb-0">
                             <div class="text-xs font-bold text-gray-500 uppercase mb-1 tracking-wider">Weight</div>
