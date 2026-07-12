@@ -96,7 +96,7 @@ $hqAddressLine = str_replace(["\r\n", "\n", "\r"], ', ', $hqAddress);
         </div>
         <div class="grid lg:grid-cols-12 gap-6 lg:gap-8 items-stretch">
             <div class="lg:col-span-4 order-1">
-                <img alt="Service Vehicle" class="services-grid-image rounded-lg shadow-xl w-full h-full object-cover" src="/asset/home/service-vehicle.jpg"/>
+                <img alt="Service Vehicle" class="services-grid-image rounded-lg shadow-xl w-full h-full object-cover" src="<?php echo htmlspecialchars(assetUrl('/asset/home/service-vehicle.jpg')); ?>"/>
             </div>
             <div class="lg:col-span-8 grid sm:grid-cols-2 gap-4 order-2">
                 <div class="bg-white p-5 rounded-lg shadow-sm border-t-4 border-yellow-400 hover:shadow-md transition-shadow">

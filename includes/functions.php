@@ -459,6 +459,20 @@ function trackingMapUrl($trackingNumber) {
 }
 
 /**
+ * Public URL for a static asset with cache-busting when the file changes.
+ */
+function assetUrl($path) {
+    $path = '/' . ltrim(str_replace('\\', '/', (string) $path), '/');
+    $localPath = dirname(__DIR__) . $path;
+
+    if (is_file($localPath)) {
+        return $path . '?v=' . filemtime($localPath);
+    }
+
+    return $path;
+}
+
+/**
  * Format a monetary amount for display (USD).
  */
 function formatMoney($amount) {
