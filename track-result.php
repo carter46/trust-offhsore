@@ -2,28 +2,6 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/functions.php';
 
-// #region agent log
-$logFile = __DIR__ . '/.cursor/debug.log';
-$t0 = microtime(true);
-$sessionId = 'track-result-504-debug';
-$logLine = json_encode([
-    'sessionId' => $sessionId,
-    'runId' => 'pre-fix',
-    'hypothesisId' => 'A',
-    'location' => 'track-result.php:entry',
-    'message' => 'Page entry',
-    'data' => [
-        'trackingId' => $_GET['id'] ?? null,
-        'trackingIdLength' => isset($_GET['id']) ? strlen($_GET['id']) : 0,
-        'hasPlusSign' => isset($_GET['id']) && strpos($_GET['id'], '+') !== false,
-        'sessionStatus' => session_status(),
-        'memoryUsage' => memory_get_usage(true),
-    ],
-    'timestamp' => (int) round($t0 * 1000),
-]) . "\n";
-@file_put_contents($logFile, $logLine, FILE_APPEND);
-// #endregion
-
 $trackingId = isset($_GET['id']) ? trim($_GET['id']) : '';
 
 if (empty($trackingId)) {
@@ -31,64 +9,9 @@ if (empty($trackingId)) {
     exit;
 }
 
-// #region agent log
-$t1 = microtime(true);
-$logLine = json_encode([
-    'sessionId' => $sessionId,
-    'runId' => 'pre-fix',
-    'hypothesisId' => 'B',
-    'location' => 'track-result.php:before-getShipmentByTracking',
-    'message' => 'About to call getShipmentByTracking',
-    'data' => [
-        'trackingId' => $trackingId,
-        'cleanTrackingId' => str_replace(' ', '', $trackingId),
-        'elapsedMs' => (int) round(($t1 - $t0) * 1000),
-        'sessionStatus' => session_status(),
-    ],
-    'timestamp' => (int) round($t1 * 1000),
-]) . "\n";
-@file_put_contents($logFile, $logLine, FILE_APPEND);
-// #endregion
-
-// Fetch tracking data directly from database
 $shipment = getShipmentByTracking($trackingId);
 
-// #region agent log
-$t2 = microtime(true);
-$logLine = json_encode([
-    'sessionId' => $sessionId,
-    'runId' => 'pre-fix',
-    'hypothesisId' => 'B',
-    'location' => 'track-result.php:after-getShipmentByTracking',
-    'message' => 'getShipmentByTracking completed',
-    'data' => [
-        'found' => $shipment !== null && $shipment !== false,
-        'shipmentId' => $shipment['id'] ?? null,
-        'queryTimeMs' => (int) round(($t2 - $t1) * 1000),
-        'elapsedMs' => (int) round(($t2 - $t0) * 1000),
-        'memoryUsage' => memory_get_usage(true),
-    ],
-    'timestamp' => (int) round($t2 * 1000),
-]) . "\n";
-@file_put_contents($logFile, $logLine, FILE_APPEND);
-// #endregion
-
 if (!$shipment) {
-    // #region agent log
-    $logLine = json_encode([
-        'sessionId' => $sessionId,
-        'runId' => 'pre-fix',
-        'hypothesisId' => 'B',
-        'location' => 'track-result.php:shipment-not-found',
-        'message' => 'Shipment not found, exiting',
-        'data' => [
-            'trackingId' => $trackingId,
-            'totalElapsedMs' => (int) round((microtime(true) - $t0) * 1000),
-        ],
-        'timestamp' => (int) round(microtime(true) * 1000),
-    ]) . "\n";
-    @file_put_contents($logFile, $logLine, FILE_APPEND);
-    // #endregion
     $error = 'Shipment not found';
     include __DIR__ . '/includes/header.php';
     ?>
@@ -106,43 +29,7 @@ if (!$shipment) {
     exit;
 }
 
-// #region agent log
-$t3 = microtime(true);
-$logLine = json_encode([
-    'sessionId' => $sessionId,
-    'runId' => 'pre-fix',
-    'hypothesisId' => 'D',
-    'location' => 'track-result.php:before-getTrackingEvents',
-    'message' => 'About to call getTrackingEvents',
-    'data' => [
-        'shipmentId' => $shipment['id'],
-        'elapsedMs' => (int) round(($t3 - $t0) * 1000),
-    ],
-    'timestamp' => (int) round($t3 * 1000),
-]) . "\n";
-@file_put_contents($logFile, $logLine, FILE_APPEND);
-// #endregion
-
 $events = getTrackingEvents($shipment['id']);
-
-// #region agent log
-$t4 = microtime(true);
-$logLine = json_encode([
-    'sessionId' => $sessionId,
-    'runId' => 'pre-fix',
-    'hypothesisId' => 'D',
-    'location' => 'track-result.php:after-getTrackingEvents',
-    'message' => 'getTrackingEvents completed',
-    'data' => [
-        'eventCount' => count($events),
-        'queryTimeMs' => (int) round(($t4 - $t3) * 1000),
-        'elapsedMs' => (int) round(($t4 - $t0) * 1000),
-        'memoryUsage' => memory_get_usage(true),
-    ],
-    'timestamp' => (int) round($t4 * 1000),
-]) . "\n";
-@file_put_contents($logFile, $logLine, FILE_APPEND);
-// #endregion
 
 // Separate remarks (Admin Note) from public Travel History
 $latestRemark = null;
@@ -179,24 +66,6 @@ foreach ($progressSteps as $step) {
 }
 $progressBarVisual = getTrackingStepVisual(['state' => 'active', 'tone' => $progressActiveTone]);
 $progressBarClass = $progressBarVisual['bar'];
-
-// #region agent log
-$t5 = microtime(true);
-$logLine = json_encode([
-    'sessionId' => $sessionId,
-    'runId' => 'pre-fix',
-    'hypothesisId' => 'A',
-    'location' => 'track-result.php:before-header-include',
-    'message' => 'About to include header',
-    'data' => [
-        'totalElapsedMs' => (int) round(($t5 - $t0) * 1000),
-        'sessionStatus' => session_status(),
-        'memoryUsage' => memory_get_usage(true),
-    ],
-    'timestamp' => (int) round($t5 * 1000),
-]) . "\n";
-@file_put_contents($logFile, $logLine, FILE_APPEND);
-// #endregion
 
 include __DIR__ . '/includes/header.php';
 ?>

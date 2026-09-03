@@ -264,6 +264,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $shipmen
         // sent when the shipment has a recipient email address.
         $emailStatus = '';
         if ($statusChanged) {
+            $recipientEmail = $recipientEmail ?? ($shipment['recipient_email'] ?? '');
             if (!empty($recipientEmail)) {
                 $emailResult = sendShipmentNotificationEmail($shipmentId);
                 $emailStatus = $emailResult['success'] ? 'sent' : 'failed';
@@ -762,7 +763,6 @@ document.addEventListener('DOMContentLoaded', function () {
       load().then(() => {
         if (!(window.google && google.maps && google.maps.places)) return;
         const ac = new google.maps.places.Autocomplete(locationInput, {
-          types: ['geocode', 'establishment'],
           fields: ['formatted_address', 'name', 'geometry']
         });
         ac.addListener('place_changed', function () {

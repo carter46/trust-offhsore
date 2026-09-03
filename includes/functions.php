@@ -307,71 +307,16 @@ function darkenColor($hexColor, $percent = 30) {
  */
 function getShipmentByTracking($trackingNumber) {
     global $conn;
-    
-    // #region agent log
-    $logFile = __DIR__ . '/../.cursor/debug.log';
-    $t0 = microtime(true);
-    $logLine = json_encode([
-        'sessionId' => 'track-result-504-debug',
-        'runId' => 'pre-fix',
-        'hypothesisId' => 'C',
-        'location' => 'functions.php:getShipmentByTracking:entry',
-        'message' => 'Function entry',
-        'data' => [
-            'trackingNumber' => $trackingNumber,
-            'cleanNumber' => str_replace(' ', '', $trackingNumber),
-            'cleanLength' => strlen(str_replace(' ', '', $trackingNumber)),
-        ],
-        'timestamp' => (int) round($t0 * 1000),
-    ]) . "\n";
-    @file_put_contents($logFile, $logLine, FILE_APPEND);
-    // #endregion
-    
-    // Remove spaces for search
+
     $cleanNumber = str_replace(' ', '', $trackingNumber);
-    
-    // #region agent log
-    $t1 = microtime(true);
-    $logLine = json_encode([
-        'sessionId' => 'track-result-504-debug',
-        'runId' => 'pre-fix',
-        'hypothesisId' => 'C',
-        'location' => 'functions.php:getShipmentByTracking:before-query',
-        'message' => 'About to execute query',
-        'data' => [
-            'cleanNumber' => $cleanNumber,
-            'prepTimeMs' => (int) round(($t1 - $t0) * 1000),
-        ],
-        'timestamp' => (int) round($t1 * 1000),
-    ]) . "\n";
-    @file_put_contents($logFile, $logLine, FILE_APPEND);
-    // #endregion
-    
+
     $stmt = $conn->prepare("SELECT * FROM shipments WHERE REPLACE(tracking_number, ' ', '') = ?");
     $stmt->bind_param("s", $cleanNumber);
     $stmt->execute();
     $result = $stmt->get_result();
     $shipment = $result->fetch_assoc();
     $stmt->close();
-    
-    // #region agent log
-    $t2 = microtime(true);
-    $logLine = json_encode([
-        'sessionId' => 'track-result-504-debug',
-        'runId' => 'pre-fix',
-        'hypothesisId' => 'C',
-        'location' => 'functions.php:getShipmentByTracking:after-query',
-        'message' => 'Query completed',
-        'data' => [
-            'found' => $shipment !== null && $shipment !== false,
-            'queryTimeMs' => (int) round(($t2 - $t1) * 1000),
-            'totalTimeMs' => (int) round(($t2 - $t0) * 1000),
-        ],
-        'timestamp' => (int) round($t2 * 1000),
-    ]) . "\n";
-    @file_put_contents($logFile, $logLine, FILE_APPEND);
-    // #endregion
-    
+
     return $shipment;
 }
 
@@ -380,53 +325,18 @@ function getShipmentByTracking($trackingNumber) {
  */
 function getTrackingEvents($shipmentId) {
     global $conn;
-    
-    // #region agent log
-    $logFile = __DIR__ . '/../.cursor/debug.log';
-    $t0 = microtime(true);
-    $logLine = json_encode([
-        'sessionId' => 'track-result-504-debug',
-        'runId' => 'pre-fix',
-        'hypothesisId' => 'D',
-        'location' => 'functions.php:getTrackingEvents:entry',
-        'message' => 'Function entry',
-        'data' => [
-            'shipmentId' => $shipmentId,
-        ],
-        'timestamp' => (int) round($t0 * 1000),
-    ]) . "\n";
-    @file_put_contents($logFile, $logLine, FILE_APPEND);
-    // #endregion
-    
+
     $stmt = $conn->prepare("SELECT * FROM tracking_events WHERE shipment_id = ? ORDER BY event_date DESC");
     $stmt->bind_param("i", $shipmentId);
     $stmt->execute();
     $result = $stmt->get_result();
     $events = [];
-    
+
     while ($row = $result->fetch_assoc()) {
         $events[] = $row;
     }
-    
+
     $stmt->close();
-    
-    // #region agent log
-    $t1 = microtime(true);
-    $logLine = json_encode([
-        'sessionId' => 'track-result-504-debug',
-        'runId' => 'pre-fix',
-        'hypothesisId' => 'D',
-        'location' => 'functions.php:getTrackingEvents:exit',
-        'message' => 'Function exit',
-        'data' => [
-            'eventCount' => count($events),
-            'queryTimeMs' => (int) round(($t1 - $t0) * 1000),
-        ],
-        'timestamp' => (int) round($t1 * 1000),
-    ]) . "\n";
-    @file_put_contents($logFile, $logLine, FILE_APPEND);
-    // #endregion
-    
     return $events;
 }
 

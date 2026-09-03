@@ -33,7 +33,7 @@ $progressBarVisual = getTrackingStepVisual(['state' => 'active', 'tone' => $prog
 $progressBarClass = $progressBarVisual['bar'];
 
 $eventsWithLocation = array_values(array_filter($events, function($e) {
-    return !empty($e['latitude']) && !empty($e['longitude']);
+    return hasUsableMapCoords($e['latitude'] ?? null, $e['longitude'] ?? null);
 }));
 
 include __DIR__ . '/includes/header.php';
