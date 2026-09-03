@@ -15,20 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $shipmentId = isset($_POST['id']) ? intval($_POST['id']) : 0;
 $returnTo = isset($_POST['return_to']) ? trim($_POST['return_to']) : '';
-
-function safeAdminReturnUrl($returnTo) {
-    // Only allow same-host absolute paths (prevents open redirect)
-    if (!$returnTo) return '/admin/manage-shipments.php';
-    $parsed = parse_url($returnTo);
-    if ($parsed === false) return '/admin/manage-shipments.php';
-    if (isset($parsed['scheme']) || isset($parsed['host'])) return '/admin/manage-shipments.php';
-    if (!isset($parsed['path']) || $parsed['path'] === '') return '/admin/manage-shipments.php';
-    // Only allow returning to admin pages
-    if (strpos($parsed['path'], '/admin/') !== 0) return '/admin/manage-shipments.php';
-    return $parsed['path'] . (isset($parsed['query']) ? ('?' . $parsed['query']) : '');
-}
-
-$redirectBase = safeAdminReturnUrl($returnTo);
+$redirectBase = safeAdminReturnUrl($returnTo, '/admin/manage-shipments.php');
 
 if ($shipmentId <= 0) {
     header('Location: ' . $redirectBase . (strpos($redirectBase, '?') === false ? '?' : '&') . 'delete_error=Invalid+shipment+ID');

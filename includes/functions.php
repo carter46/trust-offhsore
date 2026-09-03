@@ -529,6 +529,92 @@ function formatDateTimeLocalValue($datetime) {
 }
 
 /**
+ * True when lat/lng can be plotted (rejects empty and 0,0 from mysqli null→0 binds).
+ */
+function hasUsableMapCoords($lat, $lng) {
+    if ($lat === null || $lat === '' || $lng === null || $lng === '') {
+        return false;
+    }
+    if (!is_numeric($lat) || !is_numeric($lng)) {
+        return false;
+    }
+    $lat = (float) $lat;
+    $lng = (float) $lng;
+    if ($lat == 0.0 && $lng == 0.0) {
+        return false;
+    }
+    return $lat >= -90 && $lat <= 90 && $lng >= -180 && $lng <= 180;
+}
+
+/**
+ * Latest public tracking event (location) keyed by shipment id.
+ * Prefers the newest event_date, then highest id for ties.
+ */
+function getLatestPublicEventsForShipments(array $shipmentIds) {
+    global $conn;
+    $map = [];
+    $ids = array_values(array_filter(array_map('intval', $shipmentIds)));
+    if (empty($ids) || !$conn) {
+        return $map;
+    }
+
+    $placeholders = implode(',', $ids);
+    $sql = "SELECT te.shipment_id, te.location, te.latitude, te.longitude
+            FROM tracking_events te
+            INNER JOIN (
+                SELECT t1.shipment_id, MAX(t1.id) AS max_id
+                FROM tracking_events t1
+                INNER JOIN (
+                    SELECT shipment_id, MAX(event_date) AS max_date
+                    FROM tracking_events
+                    WHERE shipment_id IN ($placeholders) AND event_type != 'Admin Note'
+                    GROUP BY shipment_id
+                ) t2 ON t1.shipment_id = t2.shipment_id AND t1.event_date = t2.max_date
+                WHERE t1.event_type != 'Admin Note'
+                GROUP BY t1.shipment_id
+            ) latest ON te.id = latest.max_id";
+    $result = $conn->query($sql);
+    if ($result) {
+        while ($row = $result->fetch_assoc()) {
+            $map[(int) $row['shipment_id']] = $row;
+        }
+        $result->free();
+    }
+    return $map;
+}
+
+/**
+ * Allowed shipment status values (admin dropdowns).
+ */
+function getShipmentStatusOptions() {
+    return ['Label Created', 'Pending', 'Picked Up', 'In Transit', 'On Hold', 'Out for Delivery', 'Delivered', 'Cancelled', 'Returned', 'Exception'];
+}
+
+/**
+ * Allow only same-host /admin/ return paths (prevents open redirects).
+ */
+function safeAdminReturnUrl($returnTo, $fallback = '/admin/dashboard.php') {
+    if (!$returnTo) {
+        return $fallback;
+    }
+    $parsed = parse_url($returnTo);
+    if ($parsed === false) {
+        return $fallback;
+    }
+    if (isset($parsed['scheme']) || isset($parsed['host'])) {
+        return $fallback;
+    }
+    if (!isset($parsed['path']) || $parsed['path'] === '') {
+        return $fallback;
+    }
+    $path = str_replace('\\', '/', $parsed['path']);
+    if (strpos($path, '..') !== false || strpos($path, '/admin/') !== 0) {
+        return $fallback;
+    }
+    return $path . (isset($parsed['query']) ? ('?' . $parsed['query']) : '');
+}
+
+/**
  * Get status badge class
  */
 function getStatusBadgeClass($status) {
@@ -551,6 +637,195 @@ function getStatusBadgeClass($status) {
     } else {
         return 'bg-gray-100 text-gray-700';
     }
+}
+
+/**
+ * Build tracking progress steps.
+ * Always exactly 4 visible steps:
+ *   1) Label Created
+ *   2) Picked Up
+ *   3) Current status (On Hold / In Transit / Out for Delivery / etc.)
+ *   4) Delivered (grey until complete)
+ *
+ * @return array{steps: array<int, array>, progress: int, active_index: int}
+ */
+function trackingEventsIndicatePickup($events) {
+    if (!is_array($events)) {
+        return false;
+    }
+    foreach ($events as $event) {
+        $type = strtolower((string) ($event['event_type'] ?? ''));
+        if ($type === 'admin note') {
+            continue;
+        }
+        if (strpos($type, 'picked') !== false
+            || strpos($type, 'transit') !== false
+            || strpos($type, 'out for delivery') !== false
+            || strpos($type, 'delivered') !== false
+            || strpos($type, 'hold') !== false) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function getTrackingProgressSteps($status, $events = []) {
+    $rawStatus = trim((string) $status);
+    $statusLower = strtolower($rawStatus);
+
+    $isDelivered = strpos($statusLower, 'delivered') !== false;
+    $isLabel = strpos($statusLower, 'label') !== false;
+    $isPicked = strpos($statusLower, 'picked') !== false;
+    $isEarly = $isLabel && !$isDelivered && !$isPicked;
+    $isFailed = strpos($statusLower, 'cancel') !== false
+        || strpos($statusLower, 'returned') !== false
+        || strpos($statusLower, 'exception') !== false;
+    $hasBeenPickedUp = $isPicked || $isDelivered
+        || strpos($statusLower, 'transit') !== false
+        || strpos($statusLower, 'out for delivery') !== false
+        || strpos($statusLower, 'hold') !== false
+        || trackingEventsIndicatePickup($events);
+
+    if ($isLabel && $isEarly) {
+        $step1 = ['key' => 'label', 'label' => 'Label Created', 'state' => 'active', 'tone' => 'green', 'icon' => 'inventory_2'];
+    } else {
+        $step1 = ['key' => 'label', 'label' => 'Label Created', 'state' => 'done', 'tone' => 'green', 'icon' => 'done'];
+    }
+
+    if ($isPicked && !$isDelivered) {
+        $step2 = ['key' => 'picked', 'label' => 'Picked Up', 'state' => 'active', 'tone' => 'green', 'icon' => 'package_2'];
+    } elseif ($isEarly || ($isFailed && !$hasBeenPickedUp)) {
+        $step2 = ['key' => 'picked', 'label' => 'Picked Up', 'state' => 'upcoming', 'tone' => 'gray', 'icon' => 'package_2'];
+    } else {
+        $step2 = ['key' => 'picked', 'label' => 'Picked Up', 'state' => 'done', 'tone' => 'green', 'icon' => 'done'];
+    }
+
+    if ($isDelivered) {
+        $step3 = ['key' => 'transit', 'label' => 'In Transit', 'state' => 'done', 'tone' => 'green', 'icon' => 'done'];
+    } elseif ($isEarly || $isPicked) {
+        $step3 = ['key' => 'next', 'label' => 'In Transit', 'state' => 'upcoming', 'tone' => 'gray', 'icon' => 'local_shipping'];
+    } else {
+        $middle = getTrackingMiddleStepFromStatus($rawStatus);
+        $step3 = [
+            'key' => $middle['key'],
+            'label' => $middle['label'],
+            'state' => 'active',
+            'tone' => $middle['tone'],
+            'icon' => $middle['icon'],
+        ];
+    }
+
+    if ($isDelivered) {
+        $step4 = ['key' => 'delivered', 'label' => 'Delivered', 'state' => 'active', 'tone' => 'green', 'icon' => 'done'];
+    } else {
+        $step4 = ['key' => 'delivered', 'label' => 'Delivered', 'state' => 'upcoming', 'tone' => 'gray', 'icon' => 'home'];
+    }
+
+    $steps = [$step1, $step2, $step3, $step4];
+
+    $activeIndex = 0;
+    foreach ($steps as $i => $step) {
+        if (($step['state'] ?? '') === 'active') {
+            $activeIndex = $i;
+            break;
+        }
+    }
+
+    $progress = (int) round(($activeIndex / 3) * 100);
+    if ($progress < 8) {
+        $progress = 8;
+    }
+    if ($isDelivered) {
+        $progress = 100;
+    }
+
+    return [
+        'steps' => $steps,
+        'progress' => $progress,
+        'active_index' => $activeIndex,
+    ];
+}
+
+/**
+ * Map a live shipment status to the middle progress-step (slot 3).
+ */
+function getTrackingMiddleStepFromStatus($status) {
+    $statusLower = strtolower(trim((string) $status));
+    $label = trim((string) $status) !== '' ? trim((string) $status) : 'In Transit';
+
+    if (strpos($statusLower, 'pending') !== false || $statusLower === '') {
+        return ['key' => 'pending', 'label' => 'Pending', 'tone' => 'gray', 'icon' => 'schedule'];
+    }
+    if (strpos($statusLower, 'hold') !== false) {
+        return ['key' => 'hold', 'label' => 'On Hold', 'tone' => 'yellow', 'icon' => 'pause_circle'];
+    }
+    if (strpos($statusLower, 'out for delivery') !== false) {
+        return ['key' => 'out', 'label' => 'Out for Delivery', 'tone' => 'orange', 'icon' => 'local_shipping'];
+    }
+    if (strpos($statusLower, 'transit') !== false) {
+        return ['key' => 'transit', 'label' => 'In Transit', 'tone' => 'primary', 'icon' => 'local_shipping'];
+    }
+    if (strpos($statusLower, 'cancel') !== false) {
+        return ['key' => 'cancelled', 'label' => 'Cancelled', 'tone' => 'red', 'icon' => 'cancel'];
+    }
+    if (strpos($statusLower, 'returned') !== false) {
+        return ['key' => 'returned', 'label' => 'Returned', 'tone' => 'red', 'icon' => 'undo'];
+    }
+    if (strpos($statusLower, 'exception') !== false) {
+        return ['key' => 'exception', 'label' => 'Exception', 'tone' => 'red', 'icon' => 'error'];
+    }
+
+    return ['key' => 'current', 'label' => $label, 'tone' => 'primary', 'icon' => 'local_shipping'];
+}
+
+/**
+ * CSS classes for a progress step circle / label by tone + state.
+ */
+function getTrackingStepVisual($step) {
+    $state = $step['state'] ?? 'upcoming';
+    $tone = $step['tone'] ?? 'gray';
+
+    $circle = 'bg-gray-200 text-gray-400';
+    $label = 'text-gray-400';
+    $bar = 'bg-green-600';
+
+    if ($state === 'done') {
+        $circle = 'bg-green-600 text-white';
+        $label = 'text-gray-800';
+        $bar = 'bg-green-600';
+    } elseif ($state === 'active') {
+        if ($tone === 'yellow') {
+            $circle = 'bg-yellow-400 text-black';
+            $label = 'text-yellow-600';
+            $bar = 'bg-yellow-400';
+        } elseif ($tone === 'red') {
+            $circle = 'bg-red-500 text-white';
+            $label = 'text-red-600';
+            $bar = 'bg-red-500';
+        } elseif ($tone === 'orange') {
+            $circle = 'bg-orange-500 text-white';
+            $label = 'text-orange-600';
+            $bar = 'bg-orange-500';
+        } elseif ($tone === 'primary') {
+            $circle = 'bg-yellow-400 text-black animate-pulse';
+            $label = 'text-yellow-600';
+            $bar = 'bg-yellow-400';
+        } elseif ($tone === 'gray') {
+            $circle = 'bg-gray-500 text-white';
+            $label = 'text-gray-700';
+            $bar = 'bg-gray-500';
+        } else {
+            $circle = 'bg-green-600 text-white';
+            $label = 'text-gray-800';
+            $bar = 'bg-green-600';
+        }
+    }
+
+    return [
+        'circle' => $circle,
+        'label' => $label,
+        'bar' => $bar,
+    ];
 }
 
 /**

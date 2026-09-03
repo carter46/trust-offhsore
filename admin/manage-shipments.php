@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/includes/admin-auth.php';
+require_once __DIR__ . '/includes/shipment-quick-actions.php';
 
 $shipmentId = isset($_GET['id']) ? intval($_GET['id']) : 0;
 $shipment = null;
@@ -290,6 +291,8 @@ if ($result) {
     $result->free();
 }
 
+$latestEvents = getLatestPublicEventsForShipments(array_column($allShipments, 'id'));
+
 // Render admin layout AFTER handling POST/redirects
 include __DIR__ . '/includes/admin-header.php';
 ?>
@@ -298,25 +301,13 @@ include __DIR__ . '/includes/admin-header.php';
     <p class="text-gray-600 dark:text-gray-400">View and edit shipment details, costs, and tracking events</p>
 </div>
 
+<?php renderAdminFlashMessages(); ?>
 <?php if (isset($_GET['saved']) && $_GET['saved'] == '1'): ?>
     <div class="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 px-4 py-3 rounded mb-6">
         Shipment updated successfully.
     </div>
 <?php endif; ?>
 
-<?php if (isset($_GET['email']) && $_GET['email'] === 'sent'): ?>
-    <div class="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 px-4 py-3 rounded mb-6">
-        Status-update email sent to the recipient.
-    </div>
-<?php elseif (isset($_GET['email']) && $_GET['email'] === 'failed'): ?>
-    <div class="bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-6">
-        The shipment status was updated, but the recipient email could not be sent. Check the server email log and SMTP settings.
-    </div>
-<?php elseif (isset($_GET['email']) && $_GET['email'] === 'missing-recipient-email'): ?>
-    <div class="bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 px-4 py-3 rounded mb-6">
-        The shipment status was updated, but no recipient email address is saved for this shipment.
-    </div>
-<?php endif; ?>
 <?php if (!empty($_GET['error'])): ?>
     <div class="bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-6">
         <?php echo htmlspecialchars($_GET['error']); ?>
@@ -457,7 +448,7 @@ include __DIR__ . '/includes/admin-header.php';
                     <select id="shipment_status" name="shipment_status" required
                             class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
                         <?php
-                        $statusOptions = ['Label Created', 'Pending', 'Picked Up', 'In Transit', 'On Hold', 'Out for Delivery', 'Delivered', 'Cancelled', 'Returned', 'Exception'];
+                        $statusOptions = getShipmentStatusOptions();
                         foreach ($statusOptions as $opt):
                         ?>
                         <option value="<?php echo htmlspecialchars($opt); ?>"<?php echo ($shipment['status'] === $opt) ? ' selected' : ''; ?>><?php echo htmlspecialchars($opt); ?></option>
@@ -560,7 +551,7 @@ include __DIR__ . '/includes/admin-header.php';
                         <option value="Returned">Returned</option>
                         <option value="Exception">Exception</option>
                     </select>
-                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">If you select a status, we will add a tracking event and update the shipment status.</p>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Optional. Adds a travel-history event. Shipment status is controlled by the Status field above, or by Change status in the actions menu.</p>
                 </div>
                 
                 <div>
@@ -648,30 +639,11 @@ include __DIR__ . '/includes/admin-header.php';
                             <?php echo formatDate($s['created_at']); ?>
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm">
-                            <div class="flex flex-wrap items-center gap-3">
-                                <a href="/admin/manage-shipments.php?id=<?php echo $s['id']; ?>"
-                                   class="inline-flex items-center px-3 py-1.5 rounded border border-secondary text-secondary hover:bg-secondary hover:text-white transition-colors font-bold">
-                                    Edit
-                                </a>
-                                <a href="<?php echo htmlspecialchars(trackingResultUrl($s['tracking_number'])); ?>" target="_blank"
-                                   class="inline-flex items-center px-3 py-1.5 rounded border border-primary text-primary hover:bg-primary hover:text-white transition-colors font-bold">
-                                    View
-                                </a>
-                                <a href="/admin/view-shipment-pdf.php?id=<?php echo $s['id']; ?>"
-                                   class="inline-flex items-center px-3 py-1.5 rounded border border-gray-400 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors font-bold">
-                                    <span class="material-icons-outlined text-sm mr-1">download</span>
-                                    PDF
-                                </a>
-                                <form method="POST" action="/admin/delete-shipment.php"
-                                      onsubmit="return confirm('Delete this shipment permanently? This will erase it from the database and delete all tracking events.');">
-                                    <input type="hidden" name="id" value="<?php echo (int) $s['id']; ?>">
-                                    <input type="hidden" name="return_to" value="/admin/manage-shipments.php">
-                                    <button type="submit"
-                                            class="inline-flex items-center px-3 py-1.5 rounded border border-red-600 text-red-600 hover:bg-red-600 hover:text-white transition-colors font-bold">
-                                        Delete
-                                    </button>
-                                </form>
-                            </div>
+                            <?php renderShipmentActionMenu($s, [
+                                'return_to' => '/admin/manage-shipments.php',
+                                'show_pdf' => true,
+                                'latest_event' => $latestEvents[(int) $s['id']] ?? [],
+                            ]); ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>
@@ -810,5 +782,8 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 <?php endif; ?>
 
-<?php include __DIR__ . '/includes/admin-footer.php'; ?>
+<?php
+renderShipmentQuickUpdateModal();
+include __DIR__ . '/includes/admin-footer.php';
+?>
 

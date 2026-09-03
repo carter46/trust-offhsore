@@ -19,20 +19,18 @@ if (!$shipment) {
 
 $events = getTrackingEvents($shipment['id']);
 
-// Calculate progress (same logic as track-result.php)
-$progress = 0;
-$status = strtolower($shipment['status']);
-if (strpos($status, 'delivered') !== false) {
-    $progress = 100;
-} elseif (strpos($status, 'out for delivery') !== false || strpos($status, 'delivery') !== false) {
-    $progress = 75;
-} elseif (strpos($status, 'transit') !== false) {
-    $progress = 70;
-} elseif (strpos($status, 'picked') !== false || strpos($status, 'pickup') !== false) {
-    $progress = 50;
-} else {
-    $progress = 25;
+$progressData = getTrackingProgressSteps($shipment['status'], $events);
+$progressSteps = $progressData['steps'];
+$progress = $progressData['progress'];
+$progressActiveTone = 'green';
+foreach ($progressSteps as $step) {
+    if (($step['state'] ?? '') === 'active') {
+        $progressActiveTone = $step['tone'] ?? 'green';
+        break;
+    }
 }
+$progressBarVisual = getTrackingStepVisual(['state' => 'active', 'tone' => $progressActiveTone]);
+$progressBarClass = $progressBarVisual['bar'];
 
 $eventsWithLocation = array_values(array_filter($events, function($e) {
     return !empty($e['latitude']) && !empty($e['longitude']);
@@ -101,35 +99,22 @@ include __DIR__ . '/includes/header.php';
                     </div>
 
                     <!-- Progress Timeline -->
-                    <div class="relative flex items-center justify-between mb-2 px-2">
+                    <div class="relative flex items-center justify-between mb-2 px-2 pt-1 pb-8">
                         <div class="absolute left-0 top-[15px] w-full h-1 bg-gray-200 dark:bg-gray-600 -z-10"></div>
-                        <div class="absolute left-0 top-[15px] h-1 bg-yellow-400 dark:bg-blue-500 -z-10 transition-all duration-1000" style="width: <?php echo (int) $progress; ?>%"></div>
+                        <div class="absolute left-0 top-[15px] h-1 <?php echo htmlspecialchars($progressBarClass); ?> -z-10 transition-all duration-1000" style="width: <?php echo (int) $progress; ?>%"></div>
 
-                        <div class="flex flex-col items-center group">
-                            <div class="w-8 h-8 rounded-full <?php echo $progress >= 25 ? 'bg-yellow-400 text-white' : 'bg-gray-300 dark:bg-gray-600'; ?> flex items-center justify-center border-4 border-white dark:border-gray-800 shadow-sm z-10">
-                                <span class="material-symbols-outlined text-[16px]">inventory_2</span>
+                        <?php foreach ($progressSteps as $step):
+                            $visual = getTrackingStepVisual($step);
+                            $isActive = ($step['state'] ?? '') === 'active';
+                            $circleSize = $isActive ? 'w-10 h-10' : 'w-8 h-8';
+                        ?>
+                        <div class="flex flex-col items-center group relative z-10">
+                            <div class="<?php echo $circleSize; ?> rounded-full <?php echo htmlspecialchars($visual['circle']); ?> flex items-center justify-center border-4 border-white dark:border-gray-800 shadow-sm">
+                                <span class="material-symbols-outlined text-[16px]"><?php echo htmlspecialchars($step['icon'] ?? 'circle'); ?></span>
                             </div>
-                            <span class="mt-2 text-xs font-bold <?php echo $progress >= 25 ? 'text-yellow-600' : 'text-gray-500 dark:text-gray-400'; ?>">Label</span>
+                            <span class="mt-2 text-[10px] md:text-xs font-bold text-center max-w-[4.5rem] md:max-w-none <?php echo htmlspecialchars($visual['label']); ?>"><?php echo htmlspecialchars($step['label']); ?></span>
                         </div>
-
-                        <div class="flex flex-col items-center group">
-                            <div class="w-8 h-8 rounded-full <?php echo $progress >= 50 ? 'bg-yellow-400 text-white' : 'bg-gray-300 dark:bg-gray-600'; ?> flex items-center justify-center border-4 border-white dark:border-gray-800 shadow-sm z-10">
-                                <span class="material-symbols-outlined text-[16px]">local_shipping</span>
-                            </div>
-                            <span class="mt-2 text-xs font-bold <?php echo $progress >= 50 ? 'text-yellow-600' : 'text-gray-500 dark:text-gray-400'; ?>">Picked up</span>
-                        </div>
-
-                        <div class="flex flex-col items-center group relative">
-                            <div class="w-10 h-10 rounded-full <?php echo $progress >= 75 ? 'bg-secondary text-white' : 'bg-gray-300 dark:bg-gray-600'; ?> flex items-center justify-center border-4 border-white dark:border-gray-800 shadow-lg z-20 scale-110">
-                                <span class="material-symbols-outlined text-[20px]">local_shipping</span>
-                            </div>
-                            <span class="mt-2 text-xs font-bold <?php echo $progress >= 75 ? 'text-secondary dark:text-orange-400' : 'text-gray-500 dark:text-gray-400'; ?>">In transit</span>
-                        </div>
-
-                        <div class="flex flex-col items-center group opacity-70">
-                            <div class="w-8 h-8 rounded-full <?php echo $progress >= 100 ? 'bg-green-600' : 'bg-gray-300 dark:bg-gray-600'; ?> border-4 border-white dark:border-gray-800 z-10"></div>
-                            <span class="mt-2 text-xs font-bold <?php echo $progress >= 100 ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'; ?>">Delivered</span>
-                        </div>
+                        <?php endforeach; ?>
                     </div>
                 </div>
 

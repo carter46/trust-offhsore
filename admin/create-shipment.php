@@ -325,8 +325,8 @@ include __DIR__ . '/includes/admin-header.php';
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="pickup_location">Pickup Location</label>
                 <input type="text" id="pickup_location" name="pickup_location"
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
-                       placeholder="Search for pickup location">
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Or enter coordinates below to find location</p>
+                       placeholder="Auto-filled from sender address">
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Filled from the sender address when you pick it from suggestions. You can still change it.</p>
                 <div class="mt-2 grid grid-cols-2 gap-2">
                     <div>
                         <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1" for="pickup_latitude_display">Latitude (Optional)</label>
@@ -355,8 +355,8 @@ include __DIR__ . '/includes/admin-header.php';
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="dropoff_location">Dropoff Location</label>
                 <input type="text" id="dropoff_location" name="dropoff_location"
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
-                       placeholder="Search for dropoff location">
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Or enter coordinates below to find location</p>
+                       placeholder="Auto-filled from recipient address">
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Filled from the recipient address when you pick it from suggestions. You can still change it.</p>
                 <div class="mt-2 grid grid-cols-2 gap-2">
                     <div>
                         <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1" for="dropoff_latitude_display">Latitude (Optional)</label>
@@ -379,9 +379,9 @@ include __DIR__ . '/includes/admin-header.php';
             <!-- Route Map Preview -->
             <div class="md:col-span-2 mt-6">
                 <h2 class="text-xl font-bold text-gray-800 dark:text-white mb-4">Route Preview</h2>
-                <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Map showing route from pickup to dropoff location</p>
+                <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Map showing the route from sender (pickup) to recipient (dropoff)</p>
                 <div id="route_map_preview" class="w-full h-96 bg-gray-200 dark:bg-gray-800 rounded" style="display: none;"></div>
-                <p id="route_map_message" class="text-sm text-gray-500 dark:text-gray-400 mt-2">Enter both pickup and dropoff locations to see the route</p>
+                <p id="route_map_message" class="text-sm text-gray-500 dark:text-gray-400 mt-2">Select sender and recipient addresses to see the route</p>
             </div>
             
             <!-- Shipment Details -->
@@ -552,12 +552,33 @@ include __DIR__ . '/includes/admin-header.php';
         });
     
     function initializeAutocomplete() {
-        // Initialize sender address autocomplete (no map preview)
+        // Sync sender/recipient address into pickup/dropoff (map route endpoints)
+        function syncMapEndpointFromPlace(endpoint, place) {
+            if (!place || !place.geometry) return;
+            const lat = place.geometry.location.lat();
+            const lng = place.geometry.location.lng();
+            const addressLabel = place.formatted_address || place.name || (endpoint === 'pickup' ? 'Pickup Address' : 'Delivery Address');
+
+            document.getElementById(endpoint + '_latitude').value = lat;
+            document.getElementById(endpoint + '_longitude').value = lng;
+            const latDisplay = document.getElementById(endpoint + '_latitude_display');
+            const lngDisplay = document.getElementById(endpoint + '_longitude_display');
+            if (latDisplay) latDisplay.value = lat;
+            if (lngDisplay) lngDisplay.value = lng;
+
+            const locationInput = document.getElementById(endpoint + '_location');
+            if (locationInput) locationInput.value = addressLabel;
+
+            displayMapPreview(endpoint, lat, lng, addressLabel, window[endpoint + 'MapInstance'] || null);
+            setTimeout(updateRouteMap, 100);
+        }
+
+        // Initialize sender address autocomplete — also drives pickup / route origin
         const senderInput = document.getElementById('sender_address');
         if (senderInput && typeof google !== 'undefined' && google.maps) {
             const senderAutocomplete = new google.maps.places.Autocomplete(senderInput, {
                 types: ['address'],
-                fields: ['formatted_address', 'address_components', 'geometry']
+                fields: ['formatted_address', 'address_components', 'geometry', 'name']
             });
             
             senderAutocomplete.addListener('place_changed', function() {
@@ -567,19 +588,21 @@ include __DIR__ . '/includes/admin-header.php';
                     const lng = place.geometry.location.lng();
                     document.getElementById('sender_latitude').value = lat;
                     document.getElementById('sender_longitude').value = lng;
-                    
-                    // Auto-fill address components
+                    if (place.formatted_address) {
+                        senderInput.value = place.formatted_address;
+                    }
                     fillAddressFields(place, 'sender');
+                    syncMapEndpointFromPlace('pickup', place);
                 }
             });
         }
         
-        // Initialize recipient address autocomplete (no map preview)
+        // Initialize recipient address autocomplete — also drives dropoff / route destination
         const recipientInput = document.getElementById('recipient_address');
         if (recipientInput && typeof google !== 'undefined' && google.maps) {
             const recipientAutocomplete = new google.maps.places.Autocomplete(recipientInput, {
                 types: ['address'],
-                fields: ['formatted_address', 'address_components', 'geometry']
+                fields: ['formatted_address', 'address_components', 'geometry', 'name']
             });
             
             recipientAutocomplete.addListener('place_changed', function() {
@@ -589,9 +612,11 @@ include __DIR__ . '/includes/admin-header.php';
                     const lng = place.geometry.location.lng();
                     document.getElementById('recipient_latitude').value = lat;
                     document.getElementById('recipient_longitude').value = lng;
-                    
-                    // Auto-fill address components
+                    if (place.formatted_address) {
+                        recipientInput.value = place.formatted_address;
+                    }
                     fillAddressFields(place, 'recipient');
+                    syncMapEndpointFromPlace('dropoff', place);
                 }
             });
         }

@@ -1,5 +1,6 @@
 <?php
 include __DIR__ . '/includes/admin-header.php';
+require_once __DIR__ . '/includes/shipment-quick-actions.php';
 
 // Get statistics
 $stats = [];
@@ -40,12 +41,15 @@ if ($result) {
     }
     $result->free();
 }
+
+$latestEvents = getLatestPublicEventsForShipments(array_column($recentShipments, 'id'));
 ?>
 <div class="mb-8">
     <h1 class="text-3xl font-light text-gray-800 dark:text-white mb-2">Dashboard</h1>
     <p class="text-gray-600 dark:text-gray-400">Welcome back, <?php echo htmlspecialchars($_SESSION['admin_username'] ?? 'Admin'); ?>!</p>
 </div>
 
+<?php renderAdminFlashMessages(); ?>
 <?php if (isset($_GET['deleted']) && $_GET['deleted'] == '1'): ?>
     <div class="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 px-4 py-3 rounded mb-6">
         Shipment deleted successfully.
@@ -54,6 +58,11 @@ if ($result) {
 <?php if (!empty($_GET['delete_error'])): ?>
     <div class="bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-6">
         <?php echo htmlspecialchars($_GET['delete_error']); ?>
+    </div>
+<?php endif; ?>
+<?php if (!empty($_GET['error'])): ?>
+    <div class="bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-6">
+        <?php echo htmlspecialchars($_GET['error']); ?>
     </div>
 <?php endif; ?>
 
@@ -155,25 +164,11 @@ if ($result) {
                                 <?php echo formatDate($shipment['created_at']); ?>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm">
-                                <div class="flex flex-wrap items-center gap-3">
-                                    <a href="<?php echo htmlspecialchars(trackingResultUrl($shipment['tracking_number'])); ?>" target="_blank"
-                                       class="inline-flex items-center px-3 py-1.5 rounded border border-primary text-primary hover:bg-primary hover:text-white transition-colors font-bold">
-                                        View
-                                    </a>
-                                    <a href="/admin/manage-shipments.php?id=<?php echo $shipment['id']; ?>"
-                                       class="inline-flex items-center px-3 py-1.5 rounded border border-secondary text-secondary hover:bg-secondary hover:text-white transition-colors font-bold">
-                                        Edit
-                                    </a>
-                                    <form method="POST" action="/admin/delete-shipment.php"
-                                          onsubmit="return confirm('Delete this shipment permanently? This will erase it from the database and delete all tracking events.');">
-                                        <input type="hidden" name="id" value="<?php echo (int) $shipment['id']; ?>">
-                                        <input type="hidden" name="return_to" value="/admin/dashboard.php">
-                                        <button type="submit"
-                                                class="inline-flex items-center px-3 py-1.5 rounded border border-red-600 text-red-600 hover:bg-red-600 hover:text-white transition-colors font-bold">
-                                            Delete
-                                        </button>
-                                    </form>
-                                </div>
+                                <?php renderShipmentActionMenu($shipment, [
+                                    'return_to' => '/admin/dashboard.php',
+                                    'show_pdf' => false,
+                                    'latest_event' => $latestEvents[(int) $shipment['id']] ?? [],
+                                ]); ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -182,5 +177,8 @@ if ($result) {
         </table>
     </div>
 </div>
-<?php include __DIR__ . '/includes/admin-footer.php'; ?>
+<?php
+renderShipmentQuickUpdateModal();
+include __DIR__ . '/includes/admin-footer.php';
+?>
 

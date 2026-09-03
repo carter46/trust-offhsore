@@ -167,18 +167,18 @@ foreach ($publicEvents as $event) {
     $eventsByDate[$date][] = $event;
 }
 
-// Calculate progress
-$progress = 0;
-$status = strtolower($shipment['status']);
-if (strpos($status, 'delivered') !== false) {
-    $progress = 100;
-} elseif (strpos($status, 'transit') !== false || strpos($status, 'delivery') !== false) {
-    $progress = 75;
-} elseif (strpos($status, 'picked') !== false) {
-    $progress = 50;
-} else {
-    $progress = 25;
+$progressData = getTrackingProgressSteps($shipment['status'], $events);
+$progressSteps = $progressData['steps'];
+$progress = $progressData['progress'];
+$progressActiveTone = 'green';
+foreach ($progressSteps as $step) {
+    if (($step['state'] ?? '') === 'active') {
+        $progressActiveTone = $step['tone'] ?? 'green';
+        break;
+    }
 }
+$progressBarVisual = getTrackingStepVisual(['state' => 'active', 'tone' => $progressActiveTone]);
+$progressBarClass = $progressBarVisual['bar'];
 
 // #region agent log
 $t5 = microtime(true);
@@ -267,40 +267,23 @@ include __DIR__ . '/includes/header.php';
                 <div class="mt-14 mb-8">
                     <div class="relative px-4 md:px-0">
                         <div class="absolute top-1/2 left-0 w-full h-1 bg-gray-200 -translate-y-1/2 z-0 rounded"></div>
-                        <div class="absolute top-1/2 left-0 h-1 bg-green-600 -translate-y-1/2 z-0 rounded transition-all duration-1000" style="width: <?php echo $progress; ?>%"></div>
+                        <div class="absolute top-1/2 left-0 h-1 <?php echo htmlspecialchars($progressBarClass); ?> -translate-y-1/2 z-0 rounded transition-all duration-1000" style="width: <?php echo (int) $progress; ?>%"></div>
                         <div class="relative z-10 flex justify-between w-full">
+                            <?php foreach ($progressSteps as $step):
+                                $visual = getTrackingStepVisual($step);
+                                $isActive = ($step['state'] ?? '') === 'active';
+                                $circleSize = $isActive ? 'w-10 h-10 -mt-1' : 'w-8 h-8';
+                                $iconSize = $isActive ? '!text-xl' : '!text-sm';
+                            ?>
                             <div class="flex flex-col items-center group cursor-default">
-                                <div class="w-8 h-8 rounded-full <?php echo $progress >= 25 ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-500'; ?> flex items-center justify-center shadow-sm ring-4 ring-white">
-                                    <span class="material-symbols-outlined !text-sm">done</span>
+                                <div class="<?php echo $circleSize; ?> rounded-full <?php echo htmlspecialchars($visual['circle']); ?> flex items-center justify-center shadow-sm ring-4 ring-white">
+                                    <span class="material-symbols-outlined <?php echo $iconSize; ?>"><?php echo htmlspecialchars($step['icon'] ?? 'circle'); ?></span>
                                 </div>
-                                <div class="absolute top-10 flex flex-col items-center w-32 text-center">
-                                    <div class="mt-1 text-xs md:text-sm font-bold text-gray-800">Label Created</div>
+                                <div class="absolute top-10 flex flex-col items-center w-24 md:w-32 text-center">
+                                    <div class="mt-1 text-[10px] md:text-sm font-bold <?php echo htmlspecialchars($visual['label']); ?>"><?php echo htmlspecialchars($step['label']); ?></div>
                                 </div>
                             </div>
-                            <div class="flex flex-col items-center group cursor-default">
-                                <div class="w-8 h-8 rounded-full <?php echo $progress >= 50 ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-500'; ?> flex items-center justify-center shadow-sm ring-4 ring-white">
-                                    <span class="material-symbols-outlined !text-sm">done</span>
-                                </div>
-                                <div class="absolute top-10 flex flex-col items-center w-32 text-center">
-                                    <div class="mt-1 text-xs md:text-sm font-bold text-gray-800">Picked Up</div>
-                                </div>
-                            </div>
-                            <div class="flex flex-col items-center group cursor-default">
-                                <div class="w-10 h-10 -mt-1 rounded-full <?php echo $progress >= 75 ? 'bg-yellow-400 text-black' : 'bg-gray-200 text-gray-500'; ?> flex items-center justify-center shadow-md ring-4 ring-white <?php echo $progress >= 75 ? 'animate-pulse' : ''; ?>">
-                                    <span class="material-symbols-outlined !text-xl">local_shipping</span>
-                                </div>
-                                <div class="absolute top-10 flex flex-col items-center w-32 text-center">
-                                    <div class="mt-1 text-xs md:text-sm font-bold <?php echo $progress >= 75 ? 'text-yellow-600' : 'text-gray-400'; ?>">In Transit</div>
-                                </div>
-                            </div>
-                            <div class="flex flex-col items-center group cursor-default">
-                                <div class="w-8 h-8 rounded-full <?php echo $progress >= 100 ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-400'; ?> flex items-center justify-center shadow-sm ring-4 ring-white">
-                                    <span class="material-symbols-outlined !text-sm">home</span>
-                                </div>
-                                <div class="absolute top-10 flex flex-col items-center w-32 text-center">
-                                    <div class="mt-1 text-xs md:text-sm font-bold <?php echo $progress >= 100 ? 'text-gray-800' : 'text-gray-400'; ?>">Delivered</div>
-                                </div>
-                            </div>
+                            <?php endforeach; ?>
                         </div>
                     </div>
                 </div>

@@ -134,3 +134,17 @@ input:focus, select:focus, textarea:focus, button:focus {
     }
 }
 
+/* Google Places suggestions above the status modal */
+.pac-container {
+    z-index: 10000 !important;
+}
+
+.admin-actions-toggle {
+    min-width: 40px;
+    min-height: 40px;
+}
+
+.admin-actions-menu {
+    box-shadow: none;
+}
+
