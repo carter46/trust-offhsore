@@ -113,6 +113,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $shipmen
             exit;
         }
 
+        // Keep this before the database update. The status API used below reads the
+        // shipment after this form has saved it, so it cannot reliably tell whether
+        // the admin changed the status in this request.
+        $statusChanged = $shipment && (string) $shipment['status'] !== (string) $shipmentStatus;
+
         $updShipment = $conn->prepare("UPDATE shipments SET
             sender_name = ?, sender_address = ?, sender_city = ?, sender_state = ?, sender_zip = ?, sender_country = ?, sender_email = ?, sender_phone = ?,
             recipient_name = ?, recipient_address = ?, recipient_city = ?, recipient_state = ?, recipient_zip = ?, recipient_country = ?, recipient_email = ?, recipient_phone = ?,
@@ -219,9 +224,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $shipmen
                 $description = $eventType . ($location !== '' ? ' — ' . $location : '');
             }
 
-            // Always update shipment status to match selected shipment status
-            $updateStatus = true;
-            $newStatus = $eventType;
+            // Shipment status was already saved above from the Status field. This
+            // request only creates the tracking event; otherwise the API would
+            // overwrite the selected status with the event type.
+            $updateStatus = false;
+            $newStatus = $shipmentStatus;
 
             // Release session lock before internal HTTP request
             if (session_status() === PHP_SESSION_ACTIVE) {
@@ -250,7 +257,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $shipmen
             curl_close($ch);
         }
 
-        header('Location: /admin/manage-shipments.php?id=' . $shipmentId . '&saved=1');
+        // Send exactly one notification for every real status change, regardless
+        // of whether the admin also added a tracking event. Shipment creation has
+        // its own opt-in notification, but status-change notifications are always
+        // sent when the shipment has a recipient email address.
+        $emailStatus = '';
+        if ($statusChanged) {
+            if (!empty($recipientEmail)) {
+                $emailResult = sendShipmentNotificationEmail($shipmentId);
+                $emailStatus = $emailResult['success'] ? 'sent' : 'failed';
+            } else {
+                $emailStatus = 'missing-recipient-email';
+            }
+        }
+
+        $redirectUrl = '/admin/manage-shipments.php?id=' . $shipmentId . '&saved=1';
+        if ($emailStatus !== '') {
+            $redirectUrl .= '&email=' . rawurlencode($emailStatus);
+        }
+        header('Location: ' . $redirectUrl);
         exit;
     }
 }
@@ -276,6 +301,20 @@ include __DIR__ . '/includes/admin-header.php';
 <?php if (isset($_GET['saved']) && $_GET['saved'] == '1'): ?>
     <div class="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 px-4 py-3 rounded mb-6">
         Shipment updated successfully.
+    </div>
+<?php endif; ?>
+
+<?php if (isset($_GET['email']) && $_GET['email'] === 'sent'): ?>
+    <div class="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 px-4 py-3 rounded mb-6">
+        Status-update email sent to the recipient.
+    </div>
+<?php elseif (isset($_GET['email']) && $_GET['email'] === 'failed'): ?>
+    <div class="bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-6">
+        The shipment status was updated, but the recipient email could not be sent. Check the server email log and SMTP settings.
+    </div>
+<?php elseif (isset($_GET['email']) && $_GET['email'] === 'missing-recipient-email'): ?>
+    <div class="bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 px-4 py-3 rounded mb-6">
+        The shipment status was updated, but no recipient email address is saved for this shipment.
     </div>
 <?php endif; ?>
 <?php if (!empty($_GET['error'])): ?>
