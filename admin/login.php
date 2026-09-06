@@ -38,9 +38,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($row = $result->fetch_assoc()) {
                 if (password_verify($password, $row['password_hash'])) {
+                    // Drop any old path-scoped session cookies, then mint a fresh site-wide one
+                    global $isHttps;
+                    if (function_exists('clearStaleSessionCookies')) {
+                        clearStaleSessionCookies(!empty($isHttps));
+                    }
+                    if (session_status() === PHP_SESSION_ACTIVE) {
+                        session_regenerate_id(true);
+                    }
+
                     $_SESSION['admin_logged_in'] = true;
                     $_SESSION['admin_user_id'] = $row['id'];
                     $_SESSION['admin_username'] = $row['username'];
+
+                    if (function_exists('writeSessionCookie')) {
+                        writeSessionCookie(!empty($isHttps));
+                    }
 
                     $updateStmt = $conn->prepare('UPDATE admin_users SET last_login = NOW() WHERE id = ?');
                     if ($updateStmt) {

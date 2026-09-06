@@ -1,40 +1,76 @@
 <?php
 /**
- * EXAMPLE config — copy to config.php on the server and fill in YOUR credentials.
- * Do not commit real passwords.
- *
- * Required hardening already included below:
- * 1) Session cookie path "/" + SameSite=Lax (stay logged in after visiting homepage)
- * 2) MySQL connect timeouts (reduce nginx 504 hangs)
+ * EXAMPLE config — copy values into your real config.php (keep YOUR DB credentials).
+ * Includes the hardened session + DB timeout settings.
  */
 
-// Database configuration — REPLACE with this site's values
 define('DB_HOST', 'YOUR_DB_HOST');
 define('DB_USER', 'YOUR_DB_USER');
 define('DB_PASS', 'YOUR_DB_PASS');
 define('DB_NAME', 'YOUR_DB_NAME');
 
-// Session — path MUST be "/" so admin login survives visiting the public homepage
 ini_set('session.use_only_cookies', '1');
 ini_set('session.use_strict_mode', '1');
 ini_set('session.cookie_httponly', '1');
-$isProduction = true; // true on live HTTPS hosts
+ini_set('session.cookie_path', '/');
+ini_set('session.cookie_samesite', 'Lax');
+
+$isProduction = true;
 $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
     || (isset($_SERVER['SERVER_PORT']) && (int) $_SERVER['SERVER_PORT'] === 443)
-    || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
-session_set_cookie_params([
-    'lifetime' => 0,
-    'path' => '/',
-    'secure' => $isHttps,
-    'httponly' => true,
-    'samesite' => 'Lax',
-]);
+    || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string) $_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')
+    || (isset($_SERVER['HTTP_X_FORWARDED_SSL']) && $_SERVER['HTTP_X_FORWARDED_SSL'] === 'on');
+
+ini_set('session.cookie_secure', $isHttps ? '1' : '0');
+
+if (PHP_VERSION_ID >= 70300) {
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path' => '/',
+        'domain' => '',
+        'secure' => $isHttps,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+} else {
+    session_set_cookie_params(0, '/; samesite=Lax', '', $isHttps, true);
+}
+
+function clearStaleSessionCookies($secure = false) {
+    $name = session_name();
+    $expire = time() - 42000;
+    foreach (['/', '/admin', '/admin/', '/admin/login.php', '/admin/dashboard.php'] as $path) {
+        setcookie($name, '', $expire, $path, '', $secure, true);
+        setcookie($name, '', $expire, $path, '', $secure, false);
+    }
+}
+
+function writeSessionCookie($secure = false) {
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        return;
+    }
+    $id = session_id();
+    if ($id === '') {
+        return;
+    }
+    if (PHP_VERSION_ID >= 70300) {
+        setcookie(session_name(), $id, [
+            'expires' => 0,
+            'path' => '/',
+            'domain' => '',
+            'secure' => $secure,
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+    } else {
+        setcookie(session_name(), $id, 0, '/; samesite=Lax', '', $secure, true);
+    }
+}
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Database connection with short timeouts
 mysqli_report(MYSQLI_REPORT_OFF);
 $conn = mysqli_init();
 if (!$conn) {
@@ -65,32 +101,6 @@ if ($isProduction) {
 }
 
 date_default_timezone_set('UTC');
-
-// SMTP defaults (override in Admin → Settings)
-if (!defined('SMTP_HOST')) {
-    define('SMTP_HOST', getenv('SMTP_HOST') ?: '');
-}
-if (!defined('SMTP_PORT')) {
-    define('SMTP_PORT', getenv('SMTP_PORT') ?: 587);
-}
-if (!defined('SMTP_USERNAME')) {
-    define('SMTP_USERNAME', getenv('SMTP_USERNAME') ?: '');
-}
-if (!defined('SMTP_PASSWORD')) {
-    define('SMTP_PASSWORD', getenv('SMTP_PASSWORD') ?: '');
-}
-if (!defined('SMTP_ENCRYPTION')) {
-    define('SMTP_ENCRYPTION', getenv('SMTP_ENCRYPTION') ?: 'tls');
-}
-if (!defined('SMTP_FROM_EMAIL')) {
-    define('SMTP_FROM_EMAIL', getenv('SMTP_FROM_EMAIL') ?: '');
-}
-if (!defined('SMTP_FROM_NAME')) {
-    define('SMTP_FROM_NAME', getenv('SMTP_FROM_NAME') ?: 'Shipping Company');
-}
-if (!defined('BREVO_API_KEY')) {
-    define('BREVO_API_KEY', getenv('BREVO_API_KEY') ?: '');
-}
 
 function getDBConnection() {
     global $conn;
