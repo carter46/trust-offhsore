@@ -49,7 +49,6 @@ $secondaryDark = darkenColor($secondaryColor, 30);
                 <div class="flex items-center space-x-8">
                     <a href="/admin/dashboard.php" class="flex items-center">
                         <img src="<?php echo htmlspecialchars(getLogo('dark')); ?>" alt="<?php echo htmlspecialchars(getSetting('company_name', 'FedEx')); ?>" class="h-8 w-auto">
-                        <span class="text-sm font-normal ml-2 text-white">Admin</span>
                     </a>
                     <div class="hidden md:flex space-x-4">
                         <a href="/admin/dashboard.php" class="px-3 py-2 rounded text-sm font-medium hover:bg-primary-dark <?php echo $currentPage === 'dashboard.php' ? 'bg-primary-dark' : ''; ?>">
@@ -90,7 +89,6 @@ $secondaryDark = darkenColor($secondaryColor, 30);
         <div class="bg-primary text-white h-14 flex items-center justify-between px-4">
             <a class="flex items-center" href="/admin/dashboard.php">
                 <img src="<?php echo htmlspecialchars(getLogo('dark')); ?>" alt="<?php echo htmlspecialchars(getSetting('company_name', 'FedEx')); ?>" class="h-8 w-auto">
-                <span class="text-sm font-normal ml-2 text-white">Admin</span>
             </a>
             <div class="flex items-center gap-4">
                 <a class="flex items-center hover:text-gray-200" href="/admin/profile.php">
