@@ -205,11 +205,11 @@ include __DIR__ . '/includes/admin-header.php';
 
 <div class="bg-white dark:bg-surface-dark rounded-lg shadow p-6">
     <?php
-    // Stop Chrome/Edge/password-manager address autofill from wiping Places-filled fields.
-    // Plain autocomplete="off" is ignored on shipping-like forms; new-password + readonly-until-focus works.
-    $noAf = 'autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"';
+    // Block browser autofill only on address/city/state (Places owns those).
+    // Name, email, phone, zip keep normal browser autofill.
+    $lockAf = 'autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"';
     ?>
-    <form method="POST" action="" id="create-shipment-form" enctype="multipart/form-data" autocomplete="off" data-lpignore="true" data-1p-ignore="true">
+    <form method="POST" action="" id="create-shipment-form" enctype="multipart/form-data" autocomplete="on">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             <!-- Sender Information -->
             <div class="md:col-span-2">
@@ -218,13 +218,13 @@ include __DIR__ . '/includes/admin-header.php';
             
             <div>
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="sender_name">Name *</label>
-                <input type="text" id="sender_name" name="sender_name" required <?php echo $noAf; ?>
+                <input type="text" id="sender_name" name="sender_name" required autocomplete="section-sender name"
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
             </div>
             
             <div>
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="sender_address">Address *</label>
-                <input type="text" id="sender_address" name="sender_address" required <?php echo $noAf; ?>
+                <input type="text" id="sender_address" name="sender_address" required <?php echo $lockAf; ?>
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
                        placeholder="Start typing and select from Google suggestions">
                 <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Select a suggestion so the route map can plot the pickup point.</p>
@@ -235,32 +235,32 @@ include __DIR__ . '/includes/admin-header.php';
             
             <div>
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="sender_city">City</label>
-                <input type="text" id="sender_city" name="sender_city" <?php echo $noAf; ?>
+                <input type="text" id="sender_city" name="sender_city" <?php echo $lockAf; ?>
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
             </div>
             
             <div>
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="sender_state">State</label>
-                <input type="text" id="sender_state" name="sender_state" <?php echo $noAf; ?>
+                <input type="text" id="sender_state" name="sender_state" <?php echo $lockAf; ?>
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
             </div>
             
             <div>
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="sender_zip">ZIP Code</label>
-                <input type="text" id="sender_zip" name="sender_zip" <?php echo $noAf; ?>
+                <input type="text" id="sender_zip" name="sender_zip" autocomplete="section-sender postal-code"
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
             </div>
             
             <div>
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="sender_email">Email</label>
-                <input type="text" id="sender_email" name="sender_email" inputmode="email" <?php echo $noAf; ?>
+                <input type="email" id="sender_email" name="sender_email" autocomplete="section-sender email"
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
                        placeholder="sender@example.com">
             </div>
             
             <div>
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="sender_phone">Phone Number</label>
-                <input type="text" id="sender_phone" name="sender_phone" inputmode="tel" <?php echo $noAf; ?>
+                <input type="tel" id="sender_phone" name="sender_phone" autocomplete="section-sender tel"
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
                        placeholder="+1 (555) 123-4567">
             </div>
@@ -272,13 +272,13 @@ include __DIR__ . '/includes/admin-header.php';
             
             <div>
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="recipient_name">Name *</label>
-                <input type="text" id="recipient_name" name="recipient_name" required <?php echo $noAf; ?>
+                <input type="text" id="recipient_name" name="recipient_name" required autocomplete="section-recipient name"
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
             </div>
             
             <div>
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="recipient_address">Address *</label>
-                <input type="text" id="recipient_address" name="recipient_address" required <?php echo $noAf; ?>
+                <input type="text" id="recipient_address" name="recipient_address" required <?php echo $lockAf; ?>
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
                        placeholder="Start typing and select from Google suggestions">
                 <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Select a suggestion so the route map can plot the drop-off point.</p>
@@ -289,32 +289,32 @@ include __DIR__ . '/includes/admin-header.php';
             
             <div>
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="recipient_city">City</label>
-                <input type="text" id="recipient_city" name="recipient_city" <?php echo $noAf; ?>
+                <input type="text" id="recipient_city" name="recipient_city" <?php echo $lockAf; ?>
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
             </div>
             
             <div>
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="recipient_state">State</label>
-                <input type="text" id="recipient_state" name="recipient_state" <?php echo $noAf; ?>
+                <input type="text" id="recipient_state" name="recipient_state" <?php echo $lockAf; ?>
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
             </div>
             
             <div>
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="recipient_zip">ZIP Code</label>
-                <input type="text" id="recipient_zip" name="recipient_zip" <?php echo $noAf; ?>
+                <input type="text" id="recipient_zip" name="recipient_zip" autocomplete="section-recipient postal-code"
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
             </div>
             
             <div>
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="recipient_email">Email</label>
-                <input type="text" id="recipient_email" name="recipient_email" inputmode="email" <?php echo $noAf; ?>
+                <input type="email" id="recipient_email" name="recipient_email" autocomplete="section-recipient email"
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
                        placeholder="recipient@example.com">
             </div>
             
             <div>
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="recipient_phone">Phone Number</label>
-                <input type="text" id="recipient_phone" name="recipient_phone" inputmode="tel" <?php echo $noAf; ?>
+                <input type="tel" id="recipient_phone" name="recipient_phone" autocomplete="section-recipient tel"
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
                        placeholder="+1 (555) 123-4567">
             </div>
@@ -549,7 +549,18 @@ include __DIR__ . '/includes/admin-header.php';
         if (personLng) personLng.value = lng;
 
         fillAddressFields(place, personPrefix);
+        lockPlaceOwnedFields(personPrefix);
         setEndpoint(endpoint, lat, lng, label);
+    }
+
+    /** Keep address/city/state readonly unless the user is editing that field. */
+    function lockPlaceOwnedFields(prefix) {
+        ['address', 'city', 'state'].forEach(function (suffix) {
+            const el = document.getElementById(prefix + '_' + suffix);
+            if (!el) return;
+            if (document.activeElement === el) return;
+            el.setAttribute('readonly', 'readonly');
+        });
     }
 
     function buildAddressQuery(prefix) {
@@ -616,6 +627,7 @@ include __DIR__ . '/includes/admin-header.php';
                 input.value = place.formatted_address;
             }
             lastCommittedAddress[prefix] = place.formatted_address || label;
+            lockPlaceOwnedFields(prefix);
             setEndpoint(endpoint, lat, lng, label);
         });
     }
@@ -873,15 +885,15 @@ function calculateTotalCost() {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
-    // Keep fields readonly until focused so Chrome cannot spray a saved address
-    // profile into city/state/zip when the user clicks email or phone.
+    // Only lock address/city/state. Name, email, phone, zip keep browser autofill.
+    // Readonly blocks Chrome from overwriting Places values when clicking email/phone.
     const form = document.getElementById('create-shipment-form');
     if (form) {
-        const guardIds = [
-            'sender_name', 'sender_address', 'sender_city', 'sender_state', 'sender_zip', 'sender_email', 'sender_phone',
-            'recipient_name', 'recipient_address', 'recipient_city', 'recipient_state', 'recipient_zip', 'recipient_email', 'recipient_phone'
+        const placeOwnedIds = [
+            'sender_address', 'sender_city', 'sender_state',
+            'recipient_address', 'recipient_city', 'recipient_state'
         ];
-        guardIds.forEach(function (id) {
+        placeOwnedIds.forEach(function (id) {
             const el = document.getElementById(id);
             if (!el) return;
             el.setAttribute('readonly', 'readonly');
@@ -890,6 +902,14 @@ document.addEventListener('DOMContentLoaded', function () {
             });
             el.addEventListener('mousedown', function () {
                 el.removeAttribute('readonly');
+            });
+            el.addEventListener('blur', function () {
+                // Re-lock after edit so later autofill into email/phone cannot wipe them
+                setTimeout(function () {
+                    if (document.activeElement !== el) {
+                        el.setAttribute('readonly', 'readonly');
+                    }
+                }, 0);
             });
         });
     }
@@ -912,6 +932,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (isNaN(parseFloat(totalCostValue))) totalCostValue = '0.00';
                 totalCostField.value = totalCostValue;
             }
+            // Readonly fields still submit; unlock just in case some browsers skip them
+            ['sender_address', 'sender_city', 'sender_state', 'recipient_address', 'recipient_city', 'recipient_state'].forEach(function (id) {
+                const el = document.getElementById(id);
+                if (el) el.removeAttribute('readonly');
+            });
             submitButton.disabled = true;
             submitButton.textContent = 'Creating...';
             submitButton.classList.add('opacity-50', 'cursor-not-allowed');
