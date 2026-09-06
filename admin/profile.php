@@ -5,18 +5,34 @@ $success = '';
 $error = '';
 
 // Get current admin user info
-$userId = $_SESSION['admin_user_id'] ?? 0;
+$userId = isset($_SESSION['admin_user_id']) ? (int) $_SESSION['admin_user_id'] : 0;
 $user = ['username' => '', 'email' => ''];
 if ($userId > 0) {
-    $stmt = $conn->prepare("SELECT username, email FROM admin_users WHERE id = ?");
-    $stmt->bind_param("i", $userId);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $userData = $result->fetch_assoc();
-    if ($userData) {
-        $user = $userData;
+    $stmt = $conn->prepare('SELECT username, email FROM admin_users WHERE id = ? LIMIT 1');
+    if ($stmt) {
+        $stmt->bind_param('i', $userId);
+        if ($stmt->execute()) {
+            $result = $stmt->get_result();
+            $userData = $result ? $result->fetch_assoc() : null;
+            if ($userData) {
+                $user = $userData;
+            }
+        }
+        $stmt->close();
+    } else {
+        $stmt = $conn->prepare('SELECT username FROM admin_users WHERE id = ? LIMIT 1');
+        if ($stmt) {
+            $stmt->bind_param('i', $userId);
+            if ($stmt->execute()) {
+                $result = $stmt->get_result();
+                $userData = $result ? $result->fetch_assoc() : null;
+                if ($userData) {
+                    $user['username'] = $userData['username'];
+                }
+            }
+            $stmt->close();
+        }
     }
-    $stmt->close();
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -85,7 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $updateStmt->bind_param("si", $newEmail, $userId);
                 
                 if ($updateStmt->execute()) {
-                    $success = 'Email updated successfully!';
+                    $success = 'Email updated successfully! You can now sign in with this email or your username.';
                     // Refresh user data
                     $stmt = $conn->prepare("SELECT username, email FROM admin_users WHERE id = ?");
                     $stmt->bind_param("i", $userId);
@@ -107,6 +123,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <div class="mb-8">
     <h1 class="text-3xl font-light text-gray-800 dark:text-white mb-2">Profile Settings</h1>
     <p class="text-gray-600 dark:text-gray-400">Manage your account password and email</p>
+</div>
+
+<div class="bg-white dark:bg-surface-dark rounded-lg shadow p-4 mb-6">
+    <p class="text-sm text-gray-700 dark:text-gray-300">
+        <span class="font-bold">Username:</span>
+        <?php echo htmlspecialchars($user['username'] ?? ''); ?>
+    </p>
+    <p class="text-xs text-gray-500 mt-1">You can sign in with your username or email address.</p>
 </div>
 
 <?php if ($success): ?>

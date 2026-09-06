@@ -132,31 +132,66 @@ function formatDateTime($datetime, $format = 'F j, Y g:i A') {
 }
 
 /**
- * Get setting value
+ * Get setting value (cached per request to avoid repeated DB hits on admin pages).
  */
 function getSetting($key, $default = '') {
     global $conn;
-    
-    $stmt = $conn->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
+
+    if (!isset($GLOBALS['__settings_cache']) || !is_array($GLOBALS['__settings_cache'])) {
+        $GLOBALS['__settings_cache'] = [];
+    }
+
+    $cacheKey = (string) $key;
+    if (array_key_exists($cacheKey, $GLOBALS['__settings_cache'])) {
+        $cached = $GLOBALS['__settings_cache'][$cacheKey];
+        return ($cached === null || $cached === '') ? $default : $cached;
+    }
+
+    if (!$conn) {
+        return $default;
+    }
+
+    $stmt = $conn->prepare('SELECT setting_value FROM settings WHERE setting_key = ?');
     if (!$stmt) {
         error_log('getSetting prepare failed: ' . $conn->error);
         return $default;
     }
-    $stmt->bind_param("s", $key);
-    $stmt->execute();
+    $stmt->bind_param('s', $key);
+    if (!$stmt->execute()) {
+        $stmt->close();
+        return $default;
+    }
     $result = $stmt->get_result();
-    
+
     if ($row = $result->fetch_assoc()) {
         $stmt->close();
         $value = $row['setting_value'];
         if ($value === null || trim((string) $value) === '') {
+            $GLOBALS['__settings_cache'][$cacheKey] = null;
             return $default;
         }
+        $GLOBALS['__settings_cache'][$cacheKey] = $value;
         return $value;
     }
-    
+
     $stmt->close();
+    $GLOBALS['__settings_cache'][$cacheKey] = null;
     return $default;
+}
+
+/**
+ * Drop cached setting values (call after updateSetting).
+ */
+function clearSettingCache($key = null) {
+    if (!isset($GLOBALS['__settings_cache']) || !is_array($GLOBALS['__settings_cache'])) {
+        $GLOBALS['__settings_cache'] = [];
+        return;
+    }
+    if ($key === null) {
+        $GLOBALS['__settings_cache'] = [];
+    } else {
+        unset($GLOBALS['__settings_cache'][(string) $key]);
+    }
 }
 
 /**
@@ -249,6 +284,10 @@ function updateSetting($key, $value) {
     $stmt->bind_param("sss", $key, $value, $value);
     $result = $stmt->execute();
     $stmt->close();
+
+    if (function_exists('clearSettingCache')) {
+        clearSettingCache($key);
+    }
     
     return $result;
 }

@@ -12,47 +12,54 @@ if (isAdminLoggedIn()) {
 
 // Handle login form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = isset($_POST['username']) ? sanitizeInput($_POST['username']) : '';
+    $loginId = isset($_POST['username']) ? trim((string) sanitizeInput($_POST['username'])) : '';
     $password = isset($_POST['password']) ? $_POST['password'] : '';
-    
-    // Additional validation
-    if (strlen($username) > 50 || strlen($password) > 255) {
+
+    // Emails can be longer than usernames
+    if (strlen($loginId) > 100 || strlen($password) > 255) {
         $error = 'Invalid input length';
-    }
-    
-    if (empty($username) || empty($password)) {
-        $error = 'Please enter both username and password';
+    } elseif ($loginId === '' || $password === '') {
+        $error = 'Please enter both username/email and password';
     } else {
-        // Check user credentials
-        $stmt = $conn->prepare("SELECT id, username, password_hash FROM admin_users WHERE username = ?");
-        $stmt->bind_param("s", $username);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        
-        if ($row = $result->fetch_assoc()) {
-            if (password_verify($password, $row['password_hash'])) {
-                // Login successful
-                $_SESSION['admin_logged_in'] = true;
-                $_SESSION['admin_user_id'] = $row['id'];
-                $_SESSION['admin_username'] = $row['username'];
-                
-                // Update last login
-                $updateStmt = $conn->prepare("UPDATE admin_users SET last_login = NOW() WHERE id = ?");
-                $updateStmt->bind_param("i", $row['id']);
-                $updateStmt->execute();
-                $updateStmt->close();
-                
-                $stmt->close();
-                header('Location: /admin/dashboard.php');
-                exit;
-            } else {
-                $error = 'Invalid username or password';
-            }
+        // Allow login with username OR email
+        $stmt = $conn->prepare(
+            "SELECT id, username, password_hash
+             FROM admin_users
+             WHERE username = ?
+                OR (email IS NOT NULL AND email != '' AND LOWER(email) = LOWER(?))
+             LIMIT 1"
+        );
+        if (!$stmt) {
+            $error = 'Login temporarily unavailable. Please try again.';
         } else {
-            $error = 'Invalid username or password';
+            $stmt->bind_param('ss', $loginId, $loginId);
+            $stmt->execute();
+            $result = $stmt->get_result();
+
+            if ($row = $result->fetch_assoc()) {
+                if (password_verify($password, $row['password_hash'])) {
+                    $_SESSION['admin_logged_in'] = true;
+                    $_SESSION['admin_user_id'] = $row['id'];
+                    $_SESSION['admin_username'] = $row['username'];
+
+                    $updateStmt = $conn->prepare('UPDATE admin_users SET last_login = NOW() WHERE id = ?');
+                    if ($updateStmt) {
+                        $updateStmt->bind_param('i', $row['id']);
+                        $updateStmt->execute();
+                        $updateStmt->close();
+                    }
+
+                    $stmt->close();
+                    header('Location: /admin/dashboard.php');
+                    exit;
+                }
+                $error = 'Invalid username/email or password';
+            } else {
+                $error = 'Invalid username/email or password';
+            }
+
+            $stmt->close();
         }
-        
-        $stmt->close();
     }
 }
 ?>
@@ -113,11 +120,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <form method="POST" action="">
                 <div class="mb-6">
                     <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="username">
-                        Username
+                        Username or Email
                     </label>
                     <input type="text" id="username" name="username" required
                            class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary focus:border-transparent"
-                           placeholder="Enter your username">
+                           placeholder="Enter username or email"
+                           autocomplete="username">
                 </div>
                 
                 <div class="mb-6">
@@ -126,7 +134,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </label>
                     <input type="password" id="password" name="password" required
                            class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary focus:border-transparent"
-                           placeholder="Enter your password">
+                           placeholder="Enter your password"
+                           autocomplete="current-password">
                 </div>
                 
                 <button type="submit" class="w-full bg-primary hover:bg-primary-dark text-white font-bold py-3 px-6 rounded uppercase tracking-wide transition-colors">
