@@ -12,7 +12,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'sender_city' => $_POST['sender_city'] ?? '',
         'sender_state' => $_POST['sender_state'] ?? '',
         'sender_zip' => $_POST['sender_zip'] ?? '',
-        'sender_country' => $_POST['sender_country'] ?? 'United States',
+        'sender_country' => trim((string) ($_POST['sender_country'] ?? '')) !== ''
+            ? trim((string) $_POST['sender_country'])
+            : 'United States',
         'sender_email' => $_POST['sender_email'] ?? '',
         'sender_phone' => $_POST['sender_phone'] ?? '',
         'sender_latitude' => $_POST['sender_latitude'] ?? null,
@@ -22,7 +24,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'recipient_city' => $_POST['recipient_city'] ?? '',
         'recipient_state' => $_POST['recipient_state'] ?? '',
         'recipient_zip' => $_POST['recipient_zip'] ?? '',
-        'recipient_country' => $_POST['recipient_country'] ?? 'United States',
+        'recipient_country' => trim((string) ($_POST['recipient_country'] ?? '')) !== ''
+            ? trim((string) $_POST['recipient_country'])
+            : 'United States',
         'recipient_email' => $_POST['recipient_email'] ?? '',
         'recipient_phone' => $_POST['recipient_phone'] ?? '',
         'recipient_latitude' => $_POST['recipient_latitude'] ?? null,
@@ -221,6 +225,7 @@ include __DIR__ . '/includes/admin-header.php';
                 <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Select a suggestion so the route map can plot the pickup point.</p>
                 <input type="hidden" id="sender_latitude" name="sender_latitude">
                 <input type="hidden" id="sender_longitude" name="sender_longitude">
+                <input type="hidden" id="sender_country" name="sender_country" value="">
             </div>
             
             <div>
@@ -274,6 +279,7 @@ include __DIR__ . '/includes/admin-header.php';
                 <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Select a suggestion so the route map can plot the drop-off point.</p>
                 <input type="hidden" id="recipient_latitude" name="recipient_latitude">
                 <input type="hidden" id="recipient_longitude" name="recipient_longitude">
+                <input type="hidden" id="recipient_country" name="recipient_country" value="">
             </div>
             
             <div>
@@ -465,6 +471,12 @@ include __DIR__ . '/includes/admin-header.php';
 (function() {
     let mapsReady = false;
     let geocoder = null;
+    let routeUpdateTimer = null;
+    let routeRequestId = 0;
+    let lastDrawnKey = '';
+    const placeSelectedAt = { sender: 0, recipient: 0 };
+    const lastCommittedAddress = { sender: '', recipient: '' };
+    const blurTimers = { sender: null, recipient: null };
 
     fetch('/api/settings.php?key=google_maps_api_key')
         .then(function (response) { return response.json(); })
@@ -494,6 +506,13 @@ include __DIR__ . '/includes/admin-header.php';
             if (msg) msg.textContent = 'Could not load map settings.';
         });
 
+    function scheduleRouteMapUpdate(delayMs) {
+        clearTimeout(routeUpdateTimer);
+        routeUpdateTimer = setTimeout(function () {
+            updateRouteMap();
+        }, typeof delayMs === 'number' ? delayMs : 200);
+    }
+
     function setEndpoint(endpoint, lat, lng, label) {
         const loc = document.getElementById(endpoint + '_location');
         const latEl = document.getElementById(endpoint + '_latitude');
@@ -501,7 +520,8 @@ include __DIR__ . '/includes/admin-header.php';
         if (loc) loc.value = label || '';
         if (latEl) latEl.value = lat;
         if (lngEl) lngEl.value = lng;
-        updateRouteMap();
+        lastDrawnKey = ''; // allow redraw after intentional address commit
+        scheduleRouteMapUpdate(200);
     }
 
     function syncFromPlace(endpoint, place, personPrefix) {
@@ -509,6 +529,14 @@ include __DIR__ . '/includes/admin-header.php';
         const lat = place.geometry.location.lat();
         const lng = place.geometry.location.lng();
         const label = place.formatted_address || place.name || (endpoint === 'pickup' ? 'Pickup' : 'Drop-off');
+
+        // Cancel any pending blur-geocode from the same field (blur fires before place_changed)
+        if (blurTimers[personPrefix]) {
+            clearTimeout(blurTimers[personPrefix]);
+            blurTimers[personPrefix] = null;
+        }
+        placeSelectedAt[personPrefix] = Date.now();
+        lastCommittedAddress[personPrefix] = label;
 
         const personLat = document.getElementById(personPrefix + '_latitude');
         const personLng = document.getElementById(personPrefix + '_longitude');
@@ -530,29 +558,59 @@ include __DIR__ . '/includes/admin-header.php';
         return parts.join(', ');
     }
 
-    function geocodePersonAddress(prefix, endpoint) {
-        if (!mapsReady || !geocoder) return;
-        const query = buildAddressQuery(prefix);
-        if (query.length < 2) return;
+    function endpointHasCoords(endpoint) {
+        const lat = parseFloat(document.getElementById(endpoint + '_latitude')?.value);
+        const lng = parseFloat(document.getElementById(endpoint + '_longitude')?.value);
+        return !isNaN(lat) && !isNaN(lng) && !(lat === 0 && lng === 0);
+    }
 
-        geocoder.geocode({ address: query }, function (results, status) {
+    /**
+     * Gated fallback: typed address without picking a suggestion.
+     * Skips when Places already committed this exact address, or within 1.5s of place_changed.
+     */
+    function geocodePersonAddressFallback(prefix, endpoint) {
+        if (!mapsReady || !geocoder) return;
+        if (Date.now() - (placeSelectedAt[prefix] || 0) < 1500) return;
+
+        const input = document.getElementById(prefix + '_address');
+        const currentText = (input && input.value ? input.value : '').trim();
+        if (!currentText || currentText.length < 5) return;
+
+        // Already committed this exact address (Places or prior geocode) — skip when tabbing away
+        if (lastCommittedAddress[prefix] && currentText === lastCommittedAddress[prefix]) {
+            return;
+        }
+
+        // Backup: coords + location label already match the visible address
+        if (endpointHasCoords(endpoint)) {
+            const loc = (document.getElementById(endpoint + '_location')?.value || '').trim();
+            if (loc && currentText === loc) return;
+        }
+
+        geocoder.geocode({ address: buildAddressQuery(prefix) }, function (results, status) {
             if (status !== 'OK' || !results || !results[0] || !results[0].geometry) {
                 return;
             }
+            if (Date.now() - (placeSelectedAt[prefix] || 0) < 1500) return;
+
             const place = results[0];
             const lat = place.geometry.location.lat();
             const lng = place.geometry.location.lng();
-            const label = place.formatted_address || query;
+            const label = place.formatted_address || currentText;
 
             const personLat = document.getElementById(prefix + '_latitude');
             const personLng = document.getElementById(prefix + '_longitude');
             if (personLat) personLat.value = lat;
             if (personLng) personLng.value = lng;
 
-            // Prefer Google's structured components when browser autofill left city/state empty
             if (place.address_components) {
-                fillAddressFields(place, prefix);
+                fillAddressFields(place, prefix, { onlyEmpty: true });
             }
+
+            if (input && place.formatted_address) {
+                input.value = place.formatted_address;
+            }
+            lastCommittedAddress[prefix] = place.formatted_address || label;
             setEndpoint(endpoint, lat, lng, label);
         });
     }
@@ -561,13 +619,13 @@ include __DIR__ . '/includes/admin-header.php';
         const input = document.getElementById(prefix + '_address');
         if (!input || !google.maps.places) return;
 
-        // Discourage browser autofill so Google Places can work
         input.setAttribute('autocomplete', 'off');
         input.setAttribute('autocorrect', 'off');
         input.setAttribute('autocapitalize', 'off');
         input.setAttribute('spellcheck', 'false');
 
         const ac = new google.maps.places.Autocomplete(input, {
+            types: ['address'],
             fields: ['formatted_address', 'address_components', 'geometry', 'name']
         });
         ac.addListener('place_changed', function () {
@@ -578,30 +636,56 @@ include __DIR__ . '/includes/admin-header.php';
             }
         });
 
-        // Fallback: browser autofill / typed address without picking a suggestion
-        let geocodeTimer = null;
-        function scheduleGeocode() {
-            clearTimeout(geocodeTimer);
-            geocodeTimer = setTimeout(function () {
-                geocodePersonAddress(prefix, endpoint);
-            }, 450);
-        }
-
-        input.addEventListener('blur', scheduleGeocode);
-        input.addEventListener('change', scheduleGeocode);
-        ['city', 'state', 'zip', 'country'].forEach(function (field) {
-            const el = document.getElementById(prefix + '_' + field);
-            if (el) {
-                el.addEventListener('blur', scheduleGeocode);
-                el.addEventListener('change', scheduleGeocode);
-            }
+        // Optional gated blur fallback only (no city/state listeners)
+        input.addEventListener('blur', function () {
+            if (blurTimers[prefix]) clearTimeout(blurTimers[prefix]);
+            blurTimers[prefix] = setTimeout(function () {
+                blurTimers[prefix] = null;
+                geocodePersonAddressFallback(prefix, endpoint);
+            }, 700);
         });
     }
 
     function initializeAddressSync() {
         bindPersonAddress('sender', 'pickup');
         bindPersonAddress('recipient', 'dropoff');
-        updateRouteMap();
+        scheduleRouteMapUpdate(300);
+    }
+
+    function clearRouteOverlays() {
+        if (window.routeFallbackPolyline) {
+            window.routeFallbackPolyline.setMap(null);
+            window.routeFallbackPolyline = null;
+        }
+        if (window.routeEndpointMarkers) {
+            window.routeEndpointMarkers.forEach(function (m) { m.setMap(null); });
+            window.routeEndpointMarkers = [];
+        }
+        if (window.routeEndpointInfos) {
+            window.routeEndpointInfos.forEach(function (iw) {
+                try { iw.close(); } catch (e) {}
+            });
+            window.routeEndpointInfos = [];
+        }
+    }
+
+    function placeEndpointMarkers(pickupLat, pickupLng, dropoffLat, dropoffLng, pickupLabel, dropoffLabel) {
+        if (window.routeEndpointMarkers) {
+            window.routeEndpointMarkers.forEach(function (m) { m.setMap(null); });
+        }
+        window.routeEndpointMarkers = [
+            new google.maps.Marker({
+                position: { lat: pickupLat, lng: pickupLng },
+                map: window.routeMapInstance,
+                title: 'Pickup: ' + pickupLabel
+            }),
+            new google.maps.Marker({
+                position: { lat: dropoffLat, lng: dropoffLng },
+                map: window.routeMapInstance,
+                title: 'Delivery: ' + dropoffLabel
+            })
+        ];
+        // Intentionally no InfoWindows — they steal focus from address inputs
     }
 
     function updateRouteMap() {
@@ -634,7 +718,10 @@ include __DIR__ . '/includes/admin-header.php';
             return;
         }
 
-        routeMapMessage.style.display = 'none';
+        const drawKey = pickupLat.toFixed(6) + ',' + pickupLng.toFixed(6) + '|' + dropoffLat.toFixed(6) + ',' + dropoffLng.toFixed(6);
+        if (drawKey === lastDrawnKey && window.routeMapInstance) {
+            return;
+        }
 
         if (!window.routeMapInstance) {
             window.routeMapInstance = new google.maps.Map(routeMapDiv, {
@@ -644,83 +731,55 @@ include __DIR__ . '/includes/admin-header.php';
             });
         }
 
-        if (window.routeDirectionsRenderer) {
-            window.routeDirectionsRenderer.setMap(null);
+        if (!window.routeDirectionsService) {
+            window.routeDirectionsService = new google.maps.DirectionsService();
         }
-        const directionsService = new google.maps.DirectionsService();
-        const directionsRenderer = new google.maps.DirectionsRenderer({
-            map: window.routeMapInstance,
-            suppressMarkers: true,
-            polylineOptions: {
-                strokeColor: '#4D148C',
-                strokeWeight: 5,
-                strokeOpacity: 0.8
-            }
-        });
-        window.routeDirectionsRenderer = directionsRenderer;
-
-        if (window.routeFallbackPolyline) {
-            window.routeFallbackPolyline.setMap(null);
-            window.routeFallbackPolyline = null;
-        }
-        if (window.routeFallbackMarkers) {
-            window.routeFallbackMarkers.forEach(function (m) { m.setMap(null); });
-            window.routeFallbackMarkers = [];
+        if (!window.routeDirectionsRenderer) {
+            window.routeDirectionsRenderer = new google.maps.DirectionsRenderer({
+                map: window.routeMapInstance,
+                suppressMarkers: true,
+                polylineOptions: {
+                    strokeColor: '#4D148C',
+                    strokeWeight: 5,
+                    strokeOpacity: 0.8
+                }
+            });
+        } else {
+            window.routeDirectionsRenderer.setMap(window.routeMapInstance);
         }
 
-        directionsService.route({
+        const requestId = ++routeRequestId;
+        const pickupLabel = document.getElementById('pickup_location')?.value || 'Pickup';
+        const dropoffLabel = document.getElementById('dropoff_location')?.value || 'Drop-off';
+
+        window.routeDirectionsService.route({
             origin: { lat: pickupLat, lng: pickupLng },
             destination: { lat: dropoffLat, lng: dropoffLng },
             travelMode: google.maps.TravelMode.DRIVING
         }, function (response, status) {
-            const pickupLabel = document.getElementById('pickup_location')?.value || 'Pickup';
-            const dropoffLabel = document.getElementById('dropoff_location')?.value || 'Drop-off';
+            if (requestId !== routeRequestId) {
+                return; // stale response
+            }
 
-            if (window.routeEndpointMarkers) {
-                window.routeEndpointMarkers.forEach(function (m) { m.setMap(null); });
-            }
-            if (window.routeEndpointInfos) {
-                window.routeEndpointInfos.forEach(function (iw) { iw.close(); });
-            }
-            window.routeEndpointMarkers = [];
-            window.routeEndpointInfos = [];
-
-            function placeLabeledEndpoints() {
-                const originMarker = new google.maps.Marker({
-                    position: { lat: pickupLat, lng: pickupLng },
-                    map: window.routeMapInstance,
-                    title: pickupLabel
-                });
-                const destMarker = new google.maps.Marker({
-                    position: { lat: dropoffLat, lng: dropoffLng },
-                    map: window.routeMapInstance,
-                    title: dropoffLabel
-                });
-                const originInfo = new google.maps.InfoWindow({
-                    content: '<div style="font:12px Arial,sans-serif;max-width:180px;"><strong>Pickup</strong><br>' + pickupLabel.replace(/</g, '&lt;') + '</div>'
-                });
-                const destInfo = new google.maps.InfoWindow({
-                    content: '<div style="font:12px Arial,sans-serif;max-width:180px;"><strong>Delivery</strong><br>' + dropoffLabel.replace(/</g, '&lt;') + '</div>'
-                });
-                originInfo.open(window.routeMapInstance, originMarker);
-                destInfo.open(window.routeMapInstance, destMarker);
-                window.routeEndpointMarkers = [originMarker, destMarker];
-                window.routeEndpointInfos = [originInfo, destInfo];
-            }
+            clearRouteOverlays();
 
             if (status === 'OK') {
-                directionsRenderer.setDirections(response);
+                try {
+                    window.routeDirectionsRenderer.setDirections(response);
+                } catch (e) {}
                 const bounds = new google.maps.LatLngBounds();
                 bounds.extend({ lat: pickupLat, lng: pickupLng });
                 bounds.extend({ lat: dropoffLat, lng: dropoffLng });
-                window.routeMapInstance.fitBounds(bounds);
-                placeLabeledEndpoints();
+                window.routeMapInstance.fitBounds(bounds, { top: 48, right: 48, bottom: 48, left: 48 });
+                placeEndpointMarkers(pickupLat, pickupLng, dropoffLat, dropoffLng, pickupLabel, dropoffLabel);
                 routeMapMessage.style.display = 'none';
+                routeMapMessage.classList.remove('text-red-500');
+                lastDrawnKey = drawKey;
                 return;
             }
 
-            // Straight-line fallback (e.g. UK → US when driving directions fail)
-            try { directionsRenderer.setDirections({ routes: [] }); } catch (e) {}
+            // Stable direct-line fallback (overseas / ZERO_RESULTS)
+            try { window.routeDirectionsRenderer.setDirections({ routes: [] }); } catch (e) {}
             const originLatLng = { lat: pickupLat, lng: pickupLng };
             const destLatLng = { lat: dropoffLat, lng: dropoffLng };
             window.routeFallbackPolyline = new google.maps.Polyline({
@@ -731,37 +790,69 @@ include __DIR__ . '/includes/admin-header.php';
                 strokeWeight: 4
             });
             window.routeFallbackPolyline.setMap(window.routeMapInstance);
-            placeLabeledEndpoints();
+            placeEndpointMarkers(pickupLat, pickupLng, dropoffLat, dropoffLng, pickupLabel, dropoffLabel);
             const bounds = new google.maps.LatLngBounds();
             bounds.extend(originLatLng);
             bounds.extend(destLatLng);
-            window.routeMapInstance.fitBounds(bounds);
+            window.routeMapInstance.fitBounds(bounds, { top: 48, right: 48, bottom: 48, left: 48 });
             routeMapMessage.textContent = 'Exact driving route unavailable — showing direct line between locations.';
             routeMapMessage.style.display = 'block';
             routeMapMessage.classList.add('text-red-500');
+            lastDrawnKey = drawKey;
         });
     }
 
-    function fillAddressFields(place, prefix) {
+    function fillAddressFields(place, prefix, options) {
+        const onlyEmpty = !!(options && options.onlyEmpty);
         const addressComponents = place.address_components || [];
+        let citySet = false;
+
         addressComponents.forEach(function (component) {
             const types = component.types;
-            if (types.includes('locality') || types.includes('postal_town') || types.includes('sublocality')) {
-                const cityEl = document.getElementById(prefix + '_city');
-                if (cityEl && (!cityEl.value || types.includes('locality'))) {
-                    if (types.includes('locality') || !cityEl.value) cityEl.value = component.long_name;
+            if (types.includes('locality')) {
+                const el = document.getElementById(prefix + '_city');
+                if (el && (!onlyEmpty || !el.value.trim())) {
+                    el.value = component.long_name;
+                    citySet = true;
                 }
             } else if (types.includes('administrative_area_level_1')) {
-                const stateEl = document.getElementById(prefix + '_state');
-                if (stateEl) stateEl.value = component.short_name;
+                const el = document.getElementById(prefix + '_state');
+                if (el && (!onlyEmpty || !el.value.trim())) {
+                    el.value = component.long_name;
+                }
             } else if (types.includes('postal_code')) {
-                const zipEl = document.getElementById(prefix + '_zip');
-                if (zipEl) zipEl.value = component.long_name;
+                const el = document.getElementById(prefix + '_zip');
+                if (el && (!onlyEmpty || !el.value.trim())) {
+                    el.value = component.long_name;
+                }
             } else if (types.includes('country')) {
-                const countryEl = document.getElementById(prefix + '_country');
-                if (countryEl) countryEl.value = component.long_name;
+                const el = document.getElementById(prefix + '_country');
+                if (el && (!onlyEmpty || !el.value.trim())) {
+                    el.value = component.long_name;
+                }
             }
         });
+
+        // International addresses often use postal_town instead of locality
+        if (!citySet) {
+            const cityFallbacks = [
+                'postal_town',
+                'administrative_area_level_2',
+                'sublocality',
+                'sublocality_level_1'
+            ];
+            for (let i = 0; i < addressComponents.length && !citySet; i++) {
+                const component = addressComponents[i];
+                const types = component.types || [];
+                const matched = cityFallbacks.some(function (t) { return types.indexOf(t) !== -1; });
+                if (!matched) continue;
+                const el = document.getElementById(prefix + '_city');
+                if (el && (!onlyEmpty || !el.value.trim())) {
+                    el.value = component.long_name;
+                    citySet = true;
+                }
+            }
+        }
     }
 })();
 

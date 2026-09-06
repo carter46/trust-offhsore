@@ -22,7 +22,7 @@ if ($cleanUri === '' || $cleanUri === '/' || $cleanScript === 'index') {
     $currentPage = 'homepage';
 } elseif (strpos($cleanUri, '/contact') !== false || $cleanScript === 'contact') {
     $currentPage = 'contact';
-} elseif (strpos($cleanUri, '/track-result') !== false || $cleanScript === 'track-result') {
+} elseif (strpos($cleanUri, '/track-result') !== false || strpos($cleanScript, 'track-result') === 0) {
     $currentPage = 'track-result';
 } elseif (strpos($cleanUri, '/track') !== false || $cleanScript === 'track') {
     $currentPage = 'track';
@@ -76,8 +76,8 @@ $navLinks = [
             },
         };
     </script>
-    <link rel="stylesheet" href="/css/styles.css">
-    <link rel="stylesheet" href="/css/animations.css">
+    <link rel="stylesheet" href="<?php echo htmlspecialchars(assetUrl('/css/styles.css')); ?>">
+    <link rel="stylesheet" href="<?php echo htmlspecialchars(assetUrl('/css/animations.css')); ?>">
     <?php if ($transparentNav): ?>
     <style>
         @media (min-width: 1024px) {
@@ -97,7 +97,7 @@ $navLinks = [
     </style>
     <?php endif; ?>
 </head>
-<body class="bg-white text-gray-800 font-sans antialiased overflow-x-hidden<?php echo $transparentNav ? ' page-homepage' : ''; ?>">
+<body class="bg-white text-gray-800 font-sans antialiased<?php echo $currentPage === 'track-result' ? '' : ' overflow-x-hidden'; ?><?php echo $transparentNav ? ' page-homepage' : ''; ?>">
 <div class="relative flex flex-col w-full min-h-screen">
 
 <!-- Top Bar -->

@@ -203,6 +203,12 @@ function addEndpointAddressLabel(mapInstance, position, heading, address, varian
             div.className =
                 'map-endpoint-address-label' +
                 (this.variant ? ' map-endpoint-address-label--' + this.variant : '');
+            // Inline styles so cards remain visible even if CSS is stale/cached
+            div.style.position = 'absolute';
+            div.style.transform = 'translate(-50%, calc(-100% - 10px))';
+            div.style.zIndex = '1000';
+            div.style.pointerEvents = 'none';
+            div.style.maxWidth = '220px';
             div.innerHTML =
                 '<div class="map-endpoint-address-label__inner">' +
                 '<strong>' + escapeHtml(this.heading) + '</strong>' +
@@ -314,7 +320,7 @@ function drawStraightMultiPoint(mapInstance, points) {
 
     const bounds = new google.maps.LatLngBounds();
     path.forEach((p) => bounds.extend(p));
-    mapInstance.fitBounds(bounds);
+    mapInstance.fitBounds(bounds, { top: 72, right: 56, bottom: 40, left: 56 });
 }
 
 function animateTruckToCurrent(path, current) {
@@ -410,7 +416,7 @@ function setupMap() {
                 return;
             }
 
-            showSimpleMap(eventsWithCoords, current);
+            await showSimpleMap(eventsWithCoords, current);
         })
         .catch((error) => {
             console.error('Error fetching tracking data:', error);
@@ -478,7 +484,7 @@ function renderShipmentRoute(fallback, labels, current) {
             const bounds = new google.maps.LatLngBounds();
             path.forEach((point) => bounds.extend(point));
             if (current) bounds.extend({ lat: current.lat, lng: current.lng });
-            map.fitBounds(bounds);
+            map.fitBounds(bounds, { top: 72, right: 56, bottom: 40, left: 56 });
 
             if (current && truckMarker) {
                 animateTruckToCurrent(path, current);
@@ -540,7 +546,7 @@ function renderEventOnlyRoute(events, labels, current) {
                 const path = result.routes[0].overview_path;
                 const bounds = new google.maps.LatLngBounds();
                 path.forEach((point) => bounds.extend(point));
-                map.fitBounds(bounds);
+                map.fitBounds(bounds, { top: 72, right: 56, bottom: 40, left: 56 });
                 if (current && truckMarker) {
                     animateTruckToCurrent(path, current);
                 }
@@ -554,8 +560,8 @@ function renderEventOnlyRoute(events, labels, current) {
     );
 }
 
-function showSimpleMap(events, current) {
-    const fallback = getFallbackEndpoints();
+async function showSimpleMap(events, current) {
+    const fallback = await resolveFallbackEndpoints();
     const labels = getRouteEndpointLabels();
     const center = current
         ? { lat: current.lat, lng: current.lng }
@@ -575,12 +581,12 @@ function showSimpleMap(events, current) {
         const pickup = {
             lat: fallback.pickup.lat,
             lng: fallback.pickup.lng,
-            name: labels.pickup
+            name: fallback.pickup.name || labels.pickup
         };
         const dropoff = {
             lat: fallback.dropoff.lat,
             lng: fallback.dropoff.lng,
-            name: labels.dropoff
+            name: fallback.dropoff.name || labels.dropoff
         };
         placeRouteLabels(map, pickup, dropoff, current);
         drawStraightMultiPoint(

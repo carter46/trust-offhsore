@@ -206,15 +206,15 @@ include __DIR__ . '/includes/header.php';
         <?php endif; ?>
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
             <div class="lg:col-span-2">
-                <div id="shipment-route-map" class="bg-white shadow-sm rounded-sm overflow-hidden border border-gray-200 mb-8 scroll-mt-24">
-                    <div class="px-6 py-4 border-b border-gray-200 bg-slate-900 text-white flex items-center justify-between gap-3">
+                <div id="shipment-route-map" class="bg-white shadow-sm rounded-sm border border-gray-200 mb-8 scroll-mt-24 overflow-visible">
+                    <div class="px-6 py-4 border-b border-gray-200 bg-slate-900 text-white flex items-center justify-between gap-3 rounded-t-sm">
                         <h3 class="text-lg font-bold flex items-center gap-2">
                             <span class="material-symbols-outlined text-yellow-400">map</span>
                             Live Shipment Route
                         </h3>
                         <span class="text-xs uppercase tracking-wider text-yellow-200/80 hidden sm:inline">Updated from tracking events</span>
                     </div>
-                    <div id="map-container" class="w-full h-[340px] md:h-[420px] bg-slate-200"></div>
+                    <div id="map-container" class="w-full h-[340px] md:h-[420px] bg-slate-200 overflow-visible relative z-0"></div>
                 </div>
                 <div class="bg-white shadow-sm rounded-sm overflow-hidden border border-gray-200">
                     <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
@@ -352,24 +352,30 @@ include __DIR__ . '/includes/header.php';
                             <div class="text-sm text-gray-800 font-medium"><?php echo htmlspecialchars($shipment['reference_number']); ?></div>
                         </div>
                         <?php endif; ?>
-                        <?php if (!empty($shipment['pickup_location']) || (!empty($shipment['pickup_latitude']) && !empty($shipment['pickup_longitude']))): ?>
+                        <?php
+                        $detailPickupLabel = getShipmentMapEndpointLabel($shipment, 'pickup');
+                        $detailDropoffLabel = getShipmentMapEndpointLabel($shipment, 'dropoff');
+                        $detailPickupCoords = getShipmentMapEndpointCoords($shipment, 'pickup');
+                        $detailDropoffCoords = getShipmentMapEndpointCoords($shipment, 'dropoff');
+                        ?>
+                        <?php if ($detailPickupLabel !== 'Pickup Address' || (!empty($detailPickupCoords['lat']) && !empty($detailPickupCoords['lng']))): ?>
                         <div class="pb-4 border-b border-gray-100 last:border-0 last:pb-0">
-                            <div class="text-xs font-bold text-gray-500 uppercase mb-1 tracking-wider">Pickup</div>
+                            <div class="text-xs font-bold text-gray-500 uppercase mb-1 tracking-wider">Pickup Address</div>
                             <div class="text-sm text-gray-800 font-medium">
-                                <?php echo htmlspecialchars($shipment['pickup_location'] ?: '—'); ?>
-                                <?php if (!empty($shipment['pickup_latitude']) && !empty($shipment['pickup_longitude'])): ?>
-                                    <div class="text-xs text-gray-500 mt-1"><?php echo htmlspecialchars($shipment['pickup_latitude']); ?>, <?php echo htmlspecialchars($shipment['pickup_longitude']); ?></div>
+                                <?php echo htmlspecialchars($detailPickupLabel); ?>
+                                <?php if (!empty($detailPickupCoords['lat']) && !empty($detailPickupCoords['lng'])): ?>
+                                    <div class="text-xs text-gray-500 mt-1"><?php echo htmlspecialchars($detailPickupCoords['lat']); ?>, <?php echo htmlspecialchars($detailPickupCoords['lng']); ?></div>
                                 <?php endif; ?>
                             </div>
                         </div>
                         <?php endif; ?>
-                        <?php if (!empty($shipment['dropoff_location']) || (!empty($shipment['dropoff_latitude']) && !empty($shipment['dropoff_longitude']))): ?>
+                        <?php if ($detailDropoffLabel !== 'Delivery Address' || (!empty($detailDropoffCoords['lat']) && !empty($detailDropoffCoords['lng']))): ?>
                         <div class="pb-4 border-b border-gray-100 last:border-0 last:pb-0">
-                            <div class="text-xs font-bold text-gray-500 uppercase mb-1 tracking-wider">Dropoff</div>
+                            <div class="text-xs font-bold text-gray-500 uppercase mb-1 tracking-wider">Delivery Address</div>
                             <div class="text-sm text-gray-800 font-medium">
-                                <?php echo htmlspecialchars($shipment['dropoff_location'] ?: '—'); ?>
-                                <?php if (!empty($shipment['dropoff_latitude']) && !empty($shipment['dropoff_longitude'])): ?>
-                                    <div class="text-xs text-gray-500 mt-1"><?php echo htmlspecialchars($shipment['dropoff_latitude']); ?>, <?php echo htmlspecialchars($shipment['dropoff_longitude']); ?></div>
+                                <?php echo htmlspecialchars($detailDropoffLabel); ?>
+                                <?php if (!empty($detailDropoffCoords['lat']) && !empty($detailDropoffCoords['lng'])): ?>
+                                    <div class="text-xs text-gray-500 mt-1"><?php echo htmlspecialchars($detailDropoffCoords['lat']); ?>, <?php echo htmlspecialchars($detailDropoffCoords['lng']); ?></div>
                                 <?php endif; ?>
                             </div>
                         </div>
@@ -392,10 +398,10 @@ include __DIR__ . '/includes/header.php';
 <?php
 $mapPickupCoords = getShipmentMapEndpointCoords($shipment, 'pickup');
 $mapDropoffCoords = getShipmentMapEndpointCoords($shipment, 'dropoff');
-$mapPickupLabel = getShipmentMapEndpointShortLabel($shipment, 'pickup');
-$mapDropoffLabel = getShipmentMapEndpointShortLabel($shipment, 'dropoff');
-$mapPickupQuery = getShipmentMapEndpointLabel($shipment, 'pickup');
-$mapDropoffQuery = getShipmentMapEndpointLabel($shipment, 'dropoff');
+$mapPickupLabel = getShipmentMapEndpointLabel($shipment, 'pickup');
+$mapDropoffLabel = getShipmentMapEndpointLabel($shipment, 'dropoff');
+$mapPickupQuery = $mapPickupLabel;
+$mapDropoffQuery = $mapDropoffLabel;
 ?>
 window.__shipmentRouteFallback = {
     pickup: {
@@ -416,6 +422,6 @@ window.__shipmentRouteFallback = {
     }
 };
 </script>
-<script src="/js/map-animation.js"></script>
+<script src="<?php echo htmlspecialchars(assetUrl('/js/map-animation.js')); ?>"></script>
 <?php include __DIR__ . '/includes/footer.php'; ?>
 

@@ -485,7 +485,7 @@ body {
     transform: translate(-50%, calc(-100% - 10px));
     pointer-events: none;
     z-index: 1000;
-    max-width: 160px;
+    max-width: 220px;
 }
 
 .map-endpoint-address-label__inner {

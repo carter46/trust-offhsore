@@ -42,10 +42,10 @@ include __DIR__ . '/includes/header.php';
     <?php
     $mapPickupCoords = getShipmentMapEndpointCoords($shipment, 'pickup');
     $mapDropoffCoords = getShipmentMapEndpointCoords($shipment, 'dropoff');
-    $mapPickupLabel = getShipmentMapEndpointShortLabel($shipment, 'pickup');
-    $mapDropoffLabel = getShipmentMapEndpointShortLabel($shipment, 'dropoff');
-    $mapPickupQuery = getShipmentMapEndpointLabel($shipment, 'pickup');
-    $mapDropoffQuery = getShipmentMapEndpointLabel($shipment, 'dropoff');
+    $mapPickupLabel = getShipmentMapEndpointLabel($shipment, 'pickup');
+    $mapDropoffLabel = getShipmentMapEndpointLabel($shipment, 'dropoff');
+    $mapPickupQuery = $mapPickupLabel;
+    $mapDropoffQuery = $mapDropoffLabel;
     ?>
     window.__shipmentRouteFallback = {
         pickup: {
@@ -70,6 +70,7 @@ include __DIR__ . '/includes/header.php';
     #map-container {
         height: 380px;
         width: 100%;
+        overflow: visible;
     }
 </style>
 <main class="flex-grow flex flex-col pt-8 pb-12 px-4 bg-gray-50">
@@ -132,8 +133,8 @@ include __DIR__ . '/includes/header.php';
                 </div>
 
                 <!-- Live Shipment Route -->
-                <div class="bg-surface-light dark:bg-surface-dark rounded shadow-custom overflow-hidden flex flex-col border border-gray-200 dark:border-gray-700">
-                    <div class="px-5 py-3 border-b border-gray-100 dark:border-gray-600 flex justify-between items-center bg-white dark:bg-gray-800">
+                <div class="bg-surface-light dark:bg-surface-dark rounded shadow-custom flex flex-col border border-gray-200 dark:border-gray-700">
+                    <div class="px-5 py-3 border-b border-gray-100 dark:border-gray-600 flex justify-between items-center bg-white dark:bg-gray-800 rounded-t">
                         <h3 class="font-bold text-gray-700 dark:text-gray-200 flex items-center text-sm uppercase tracking-wide">
                             <span class="material-symbols-outlined mr-2 text-yellow-600 text-[20px]">map</span>
                             Live Shipment Route
@@ -143,7 +144,7 @@ include __DIR__ . '/includes/header.php';
                         </a>
                     </div>
 
-                    <div class="relative w-full bg-[#E5E7EB] dark:bg-gray-700 overflow-hidden">
+                    <div class="relative w-full bg-[#E5E7EB] dark:bg-gray-700 overflow-visible">
                         <div id="map-container" class="w-full"></div>
                     </div>
                 </div>
@@ -206,6 +207,6 @@ include __DIR__ . '/includes/header.php';
         </div>
     </div>
 </main>
-<script src="/js/map-animation.js"></script>
+<script src="<?php echo htmlspecialchars(assetUrl('/js/map-animation.js')); ?>"></script>
 <?php include __DIR__ . '/includes/footer.php'; ?>
 
