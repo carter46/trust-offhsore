@@ -176,19 +176,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (json_last_error() !== JSON_ERROR_NONE) {
             $error = 'Invalid response from server: ' . json_last_error_msg() . '. Response: ' . substr($response, 0, 200);
         } elseif ($httpCode === 200 && isset($result['success']) && $result['success']) {
-            $success = 'Shipment created successfully! Tracking Number: ' . $result['tracking_number'];
-            // Clear form by redirecting
-            header('Location: /admin/create-shipment.php?success=1');
+            $tracking = rawurlencode((string) ($result['tracking_number'] ?? ''));
+            header('Location: /admin/dashboard.php?created=1&tracking=' . $tracking);
             exit;
         } else {
             $error = isset($result['error']) ? $result['error'] : 'Failed to create shipment. HTTP Code: ' . ($httpCode ?: '0');
         }
     }
-}
-
-// Check for success message from redirect
-if (isset($_GET['success']) && $_GET['success'] == '1') {
-    $success = 'Shipment created successfully!';
 }
 
 // Only render the admin layout AFTER handling POST/redirects
@@ -198,12 +192,6 @@ include __DIR__ . '/includes/admin-header.php';
     <h1 class="text-3xl font-light text-gray-800 dark:text-white mb-2">Create New Shipment</h1>
     <p class="text-gray-600 dark:text-gray-400">Create a new shipment and generate a tracking number</p>
 </div>
-
-<?php if ($success): ?>
-    <div class="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 px-4 py-3 rounded mb-6">
-        <?php echo htmlspecialchars($success); ?>
-    </div>
-<?php endif; ?>
 
 <?php if ($error): ?>
     <div class="bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-6">

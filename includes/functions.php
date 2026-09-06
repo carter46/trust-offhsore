@@ -196,6 +196,50 @@ function getLogo($backgroundType = 'light') {
 }
 
 /**
+ * Logo src that survives browser print (prefer base64 data URI for local files).
+ */
+function getPrintableLogoSrc($backgroundType = 'light') {
+    $path = getLogo($backgroundType);
+    $path = '/' . ltrim(str_replace('\\', '/', (string) $path), '/');
+    $localPath = dirname(__DIR__) . $path;
+
+    if (is_file($localPath) && is_readable($localPath)) {
+        $mime = 'image/png';
+        if (function_exists('mime_content_type')) {
+            $detected = @mime_content_type($localPath);
+            if ($detected) {
+                $mime = $detected;
+            }
+        } else {
+            $ext = strtolower(pathinfo($localPath, PATHINFO_EXTENSION));
+            $map = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'gif' => 'image/gif', 'webp' => 'image/webp', 'svg' => 'image/svg+xml'];
+            if (isset($map[$ext])) {
+                $mime = $map[$ext];
+            }
+        }
+        $data = @file_get_contents($localPath);
+        if ($data !== false) {
+            return 'data:' . $mime . ';base64,' . base64_encode($data);
+        }
+    }
+
+    $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    return ($https ? 'https' : 'http') . '://' . $host . $path;
+}
+
+/**
+ * Public print-receipt URL for a tracking number.
+ */
+function shipmentReceiptUrl($trackingNumber, $autoprint = false) {
+    $url = '/api/generate-pdf.php?id=' . rawurlencode(trim((string) $trackingNumber));
+    if ($autoprint) {
+        $url .= '&autoprint=1';
+    }
+    return $url;
+}
+
+/**
  * Update setting value
  */
 function updateSetting($key, $value) {

@@ -33,18 +33,16 @@ if (!$shipment) {
     die('Shipment not found');
 }
 
-// Check if we should use a PDF library or HTML
-// For now, we'll use HTML that can be printed to PDF by the browser
-// Or use a simple PDF generation approach
+$events = getTrackingEvents($shipment['id']);
+$autoprint = isset($_GET['autoprint']) && $_GET['autoprint'] == '1';
 
-// Set content type for HTML (will be converted to PDF by browser print or PDF library)
+// Set content type for HTML (print / Save as PDF in the browser)
 header('Content-Type: text/html; charset=utf-8');
 
 if ($download) {
     $safeTracking = preg_replace('/[^A-Za-z0-9_-]+/', '-', (string) ($shipment['tracking_number'] ?? $shipmentId));
-    header('Content-Disposition: attachment; filename="shipment-' . $safeTracking . '.html"');
+    header('Content-Disposition: attachment; filename="shipment-receipt-' . $safeTracking . '.html"');
 }
 
-// Include the template
 include __DIR__ . '/../templates/shipment-pdf-template.php';
 

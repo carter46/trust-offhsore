@@ -42,7 +42,10 @@ try {
 if (!isAdminLoggedIn()) {
     ob_end_clean();
     http_response_code(401);
-    echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+    echo json_encode([
+        'success' => false,
+        'message' => 'Unauthorized — admin session not found. Log in again, then retry the test from Settings.'
+    ]);
     exit;
 }
 

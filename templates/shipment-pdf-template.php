@@ -1,582 +1,709 @@
 <?php
 /**
- * Shipment PDF Template
- * HTML template for PDF generation based on provided design
+ * Shared professional shipping receipt (admin + public tracking).
+ * Expects $shipment. Optional: $events, $autoprint.
  */
 
 if (!isset($shipment) || !$shipment) {
     die('Shipment data is required');
 }
 
-// Only include if not already included (prevent double inclusion errors)
-if (!defined('DB_CONFIG_LOADED')) {
-    require_once __DIR__ . '/../config.php';
+if (!defined('DB_CONFIG_LOADED') && file_exists(__DIR__ . '/../config.php')) {
+    // config may already be loaded; ignore if constant unused
 }
 if (!function_exists('getSetting')) {
     require_once __DIR__ . '/../includes/functions.php';
 }
 
-$companyName = getSetting('company_name', 'FedEx');
-$companyTagline = getSetting('company_tagline', 'Global Shipping Solutions');
-$companyLogo = getLogo('light');
-$generatedDate = date('M d, Y');
-$generatedTime = date('H:i A');
+if (!isset($events) || !is_array($events)) {
+    $events = !empty($shipment['id']) ? getTrackingEvents((int) $shipment['id']) : [];
+}
 
-// Format dates
-$estimatedDelivery = $shipment['estimated_delivery'] ? date('F d, Y', strtotime($shipment['estimated_delivery'])) : 'TBD';
-$createdDate = $shipment['created_at'] ? date('F d, Y', strtotime($shipment['created_at'])) : $generatedDate;
+$publicEvents = array_values(array_filter($events, static function ($ev) {
+    return ($ev['event_type'] ?? '') !== 'Admin Note';
+}));
 
-// Format currency
-$shippingCost = !empty($shipment['base_cost']) ? number_format((float) $shipment['base_cost'], 2) : '0.00';
-$clearanceCost = !empty($shipment['clearance_cost']) ? number_format((float) $shipment['clearance_cost'], 2) : '0.00';
+$companyName = getSetting('company_name', 'Shipping Company');
+$companyTagline = getSetting('company_tagline', 'Global Logistics Solutions');
+$primaryColor = getSetting('primary_color', '#152E56');
+$secondaryColor = getSetting('secondary_color', '#F9BA34');
+$logoSrc = getPrintableLogoSrc('light');
+$supportPhone = getSetting('support_phone', getSetting('company_phone', ''));
+$supportEmail = getSetting('support_email', getSetting('company_email', ''));
+
+$generatedDate = date('M j, Y');
+$generatedTime = date('g:i A');
+$shipmentCreated = getShipmentCreatedAt($shipment);
+$createdDisplay = $shipmentCreated ? date('M j, Y g:i A', strtotime($shipmentCreated)) : $generatedDate;
+$estimatedDelivery = !empty($shipment['estimated_delivery'])
+    ? date('M j, Y g:i A', strtotime($shipment['estimated_delivery']))
+    : 'TBD';
+
+$shippingCost = !empty($shipment['base_cost']) ? number_format((float) $shipment['base_cost'], 2) : null;
+$clearanceCost = !empty($shipment['clearance_cost']) ? number_format((float) $shipment['clearance_cost'], 2) : null;
 $totalDue = getShipmentTotalDue($shipment);
-$totalCost = $totalDue !== null ? number_format($totalDue, 2) : '0.00';
-$shipmentWorth = $shipment['shipment_worth'] ? number_format($shipment['shipment_worth'], 2) : '0.00';
+$totalCost = $totalDue !== null ? number_format($totalDue, 2) : null;
+$shipmentWorth = !empty($shipment['shipment_worth']) ? number_format((float) $shipment['shipment_worth'], 2) : null;
 
-// Get pickup and dropoff locations
-$pickupLocation = $shipment['pickup_location'] ?: ($shipment['sender_city'] ? $shipment['sender_city'] . ', ' . $shipment['sender_state'] : 'Origin');
-$dropoffLocation = $shipment['dropoff_location'] ?: ($shipment['recipient_city'] ? $shipment['recipient_city'] . ', ' . $shipment['recipient_state'] : 'Destination');
+$pickupLocation = $shipment['pickup_location']
+    ?: trim(($shipment['sender_city'] ?? '') . (!empty($shipment['sender_state']) ? ', ' . $shipment['sender_state'] : ''))
+    ?: 'Origin';
+$dropoffLocation = $shipment['dropoff_location']
+    ?: trim(($shipment['recipient_city'] ?? '') . (!empty($shipment['recipient_state']) ? ', ' . $shipment['recipient_state'] : ''))
+    ?: 'Destination';
 
-// Format weight
-$weight = $shipment['weight'] ? $shipment['weight'] . ' lbs (' . number_format($shipment['weight'] * 0.453592, 1) . ' kg)' : 'N/A';
+$weight = !empty($shipment['weight'])
+    ? number_format((float) $shipment['weight'], 2) . ' lbs (' . number_format((float) $shipment['weight'] * 0.453592, 1) . ' kg)'
+    : 'N/A';
 
-// Get status badge class
-$statusClass = 'bg-green-100 text-green-700';
-if (stripos($shipment['status'], 'delivered') !== false) {
-    $statusClass = 'bg-green-100 text-green-700';
-} elseif (stripos($shipment['status'], 'transit') !== false || stripos($shipment['status'], 'delivery') !== false) {
-    $statusClass = 'bg-blue-100 text-blue-700';
-} elseif (stripos($shipment['status'], 'hold') !== false || stripos($shipment['status'], 'cancelled') !== false) {
-    $statusClass = 'bg-red-100 text-red-700';
-} elseif (stripos($shipment['status'], 'pending') !== false || stripos($shipment['status'], 'pickup') !== false) {
-    $statusClass = 'bg-yellow-100 text-yellow-700';
+$trackingClean = preg_replace('/\s+/', '', (string) $shipment['tracking_number']);
+$autoprint = !empty($autoprint) || (isset($_GET['autoprint']) && $_GET['autoprint'] == '1');
+
+$statusLower = strtolower((string) ($shipment['status'] ?? ''));
+$statusTone = '#166534';
+$statusBg = '#dcfce7';
+if (strpos($statusLower, 'cancel') !== false || strpos($statusLower, 'exception') !== false || strpos($statusLower, 'returned') !== false) {
+    $statusTone = '#991b1b';
+    $statusBg = '#fee2e2';
+} elseif (strpos($statusLower, 'hold') !== false) {
+    $statusTone = '#854d0e';
+    $statusBg = '#fef9c3';
+} elseif (strpos($statusLower, 'transit') !== false || strpos($statusLower, 'out for delivery') !== false) {
+    $statusTone = '#1e40af';
+    $statusBg = '#dbeafe';
+} elseif (strpos($statusLower, 'pending') !== false || strpos($statusLower, 'label') !== false) {
+    $statusTone = '#374151';
+    $statusBg = '#f3f4f6';
+}
+
+$itemImageSrc = '';
+if (!empty($shipment['item_image'])) {
+    $imgPath = '/' . ltrim(str_replace('\\', '/', (string) $shipment['item_image']), '/');
+    $localImg = dirname(__DIR__) . $imgPath;
+    if (is_file($localImg) && is_readable($localImg)) {
+        $mime = function_exists('mime_content_type') ? (@mime_content_type($localImg) ?: 'image/jpeg') : 'image/jpeg';
+        $bytes = @file_get_contents($localImg);
+        if ($bytes !== false) {
+            $itemImageSrc = 'data:' . $mime . ';base64,' . base64_encode($bytes);
+        }
+    }
+}
+
+if (!function_exists('receipt_h')) {
+    function receipt_h($value) {
+        return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+    }
 }
 ?>
 <!DOCTYPE html>
-<html class="light" lang="en">
+<html lang="en">
 <head>
     <meta charset="utf-8"/>
-    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-    <title>Shipment Tracking Details - <?php echo htmlspecialchars($shipment['tracking_number']); ?></title>
-    <link href="https://fonts.googleapis.com" rel="preconnect"/>
-    <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-    <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39&display=swap" rel="stylesheet"/>
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Shipping Receipt — <?php echo receipt_h($shipment['tracking_number']); ?></title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --brand: <?php echo receipt_h($primaryColor); ?>;
+            --accent: <?php echo receipt_h($secondaryColor); ?>;
+            --ink: #0f172a;
+            --muted: #64748b;
+            --line: #e2e8f0;
+            --paper: #ffffff;
+            --wash: #f8fafc;
+        }
+        * { box-sizing: border-box; }
         body {
-            font-family: 'Inter', sans-serif;
-            background: #f7f5f8;
-            color: #140d1c;
+            margin: 0;
+            font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+            color: var(--ink);
+            background: #e8eef5;
+            line-height: 1.45;
         }
-        .container {
-            max-width: 1024px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .pdf-container {
-            background: white;
-            width: 100%;
-            max-width: 800px;
-            margin: 0 auto;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-            aspect-ratio: 210/297;
+        .toolbar {
+            position: sticky;
+            top: 0;
+            z-index: 20;
             display: flex;
-            flex-direction: column;
-        }
-        .pdf-header {
-            padding: 32px 40px;
-            border-bottom: 1px solid #e5e7eb;
-            background: #f8fafc;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .logo-section {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        .logo-icon {
-            width: 40px;
-            height: 40px;
-            background: #7f0df2;
-            color: white;
-            display: flex;
-            align-items: center;
+            gap: 10px;
             justify-content: center;
-            border-radius: 8px;
+            flex-wrap: wrap;
+            padding: 14px 16px;
+            background: rgba(15, 23, 42, 0.92);
+            color: #fff;
         }
-        .company-info h3 {
-            font-size: 20px;
-            font-weight: bold;
-            color: #1e293b;
+        .toolbar button, .toolbar a {
+            appearance: none;
+            border: 0;
+            border-radius: 6px;
+            padding: 10px 16px;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            text-decoration: none;
+            color: #0f172a;
+            background: #fff;
         }
-        .company-info p {
-            font-size: 12px;
-            color: #64748b;
-            font-weight: 500;
+        .toolbar .primary {
+            background: var(--accent);
+            color: #111;
         }
-        .header-right h2 {
-            font-size: 18px;
-            font-weight: bold;
-            color: #1e293b;
-            text-align: right;
+        .sheet-wrap {
+            padding: 24px 16px 48px;
         }
-        .header-right p {
-            font-size: 14px;
-            color: #64748b;
-            text-align: right;
+        .sheet {
+            width: 100%;
+            max-width: 860px;
+            margin: 0 auto;
+            background: var(--paper);
+            border: 1px solid #dbe3ee;
+            box-shadow: 0 18px 50px rgba(15, 23, 42, 0.12);
         }
-        .pdf-content {
-            padding: 40px;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 32px;
-        }
-        .section-title {
-            font-size: 12px;
-            font-weight: bold;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: #94a3b8;
-            margin-bottom: 16px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid #e2e8f0;
-        }
-        .overview-section {
+        .brand-bar {
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
-            gap: 16px;
-        }
-        .overview-left {
-            display: flex;
-            gap: 32px;
-        }
-        .overview-item {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-        .overview-label {
-            font-size: 14px;
-            color: #64748b;
-        }
-        .status-badge {
-            display: inline-flex;
+            gap: 20px;
             align-items: center;
-            gap: 6px;
-            padding: 4px 12px;
-            border-radius: 9999px;
-            font-size: 14px;
-            font-weight: bold;
-            width: fit-content;
+            padding: 28px 32px;
+            border-bottom: 4px solid var(--brand);
+            background: linear-gradient(180deg, #fff 0%, var(--wash) 100%);
         }
-        .overview-value {
-            font-size: 16px;
-            font-weight: 600;
-            color: #1e293b;
-        }
-        .barcode-section {
+        .brand-left {
             display: flex;
-            flex-direction: column;
-            align-items: flex-end;
+            align-items: center;
+            gap: 14px;
+            min-width: 0;
         }
-        .barcode-label {
+        .brand-logo {
+            max-height: 64px;
+            max-width: 180px;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            display: block;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .brand-text h1 {
+            margin: 0;
+            font-size: 22px;
+            letter-spacing: -0.02em;
+            color: var(--brand);
+        }
+        .brand-text p {
+            margin: 2px 0 0;
             font-size: 12px;
+            color: var(--muted);
+            font-weight: 600;
             text-transform: uppercase;
-            font-weight: bold;
-            letter-spacing: 0.05em;
-            color: #94a3b8;
-            margin-bottom: 4px;
+            letter-spacing: 0.06em;
         }
-        .barcode {
-            font-family: 'Libre Barcode 39', cursive;
-            font-size: 48px;
-            line-height: 1;
-            color: #1e293b;
-            user-select: none;
+        .doc-meta {
+            text-align: right;
         }
-        .barcode-text {
-            font-size: 12px;
-            font-family: monospace;
-            letter-spacing: 0.1em;
-            color: #64748b;
+        .doc-meta .label {
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+        .doc-meta .title {
             margin-top: 4px;
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--ink);
         }
-        .info-grid {
+        .doc-meta .sub {
+            margin-top: 4px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+        .body {
+            padding: 28px 32px 8px;
+        }
+        .hero {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 40px;
-        }
-        .info-section h4 {
-            font-size: 16px;
-            font-weight: bold;
-            color: #1e293b;
-            margin-bottom: 8px;
-        }
-        .info-section .company-name {
-            font-size: 14px;
-            font-weight: 500;
-            color: #7f0df2;
-            margin-bottom: 8px;
-        }
-        .info-section .address {
-            font-size: 14px;
-            color: #475569;
-            line-height: 1.6;
-            margin-top: 8px;
-        }
-        .contact-info {
-            margin-top: 12px;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            font-size: 14px;
-            color: #475569;
-        }
-        .contact-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .contact-icon {
-            font-size: 16px;
-            color: #94a3b8;
-        }
-        .details-table {
-            width: 100%;
-            border-collapse: collapse;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            overflow: hidden;
-        }
-        .details-table thead {
-            background: #f8fafc;
-        }
-        .details-table th {
-            padding: 12px 16px;
-            text-align: left;
-            font-size: 14px;
-            font-weight: 500;
-            color: #64748b;
-            border-bottom: 1px solid #e2e8f0;
-        }
-        .details-table td {
-            padding: 12px 16px;
-            font-size: 14px;
-            color: #1e293b;
-            font-weight: 600;
-        }
-        .details-table tbody tr {
-            border-bottom: 1px solid #f1f5f9;
-        }
-        .location-row {
-            display: flex;
-            border-top: 1px solid #e2e8f0;
-            background: #f8fafc;
-        }
-        .location-item {
-            padding: 16px;
-            width: 50%;
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-            border-right: 1px solid #e2e8f0;
-        }
-        .location-item:last-child {
-            border-right: none;
-        }
-        .location-icon {
-            color: #7f0df2;
-            margin-top: 2px;
-        }
-        .location-label {
-            font-size: 12px;
-            text-transform: uppercase;
-            font-weight: bold;
-            letter-spacing: 0.05em;
-            color: #94a3b8;
-            margin-bottom: 4px;
-        }
-        .location-name {
-            font-size: 14px;
-            font-weight: 500;
-            color: #1e293b;
-        }
-        .location-date {
-            font-size: 12px;
-            color: #64748b;
-        }
-        .map-placeholder {
-            width: 100%;
-            height: 128px;
-            background: #f1f5f9;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            margin-top: 16px;
-            position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .map-label {
-            background: rgba(255,255,255,0.9);
-            backdrop-filter: blur(4px);
-            padding: 8px 16px;
-            border-radius: 9999px;
-            border: 1px solid #e2e8f0;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 12px;
-            font-weight: bold;
-            color: #475569;
-        }
-        .pdf-footer {
-            background: #1e293b;
-            color: white;
-            padding: 40px;
-            margin-top: auto;
-        }
-        .footer-title {
-            font-size: 12px;
-            font-weight: bold;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: #94a3b8;
+            grid-template-columns: 1.4fr 1fr;
+            gap: 18px;
             margin-bottom: 24px;
         }
-        .footer-content {
+        .panel {
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: var(--wash);
+            padding: 16px 18px;
+        }
+        .panel h2 {
+            margin: 0 0 10px;
+            font-size: 11px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+        .tracking-number {
+            font-size: 26px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            color: var(--brand);
+            word-break: break-word;
+        }
+        .status-pill {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: <?php echo receipt_h($statusTone); ?>;
+            background: <?php echo receipt_h($statusBg); ?>;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .kv {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: 6px 10px;
+            font-size: 13px;
+        }
+        .kv .k { color: var(--muted); font-weight: 600; }
+        .kv .v { font-weight: 700; color: var(--ink); }
+        .barcode-block {
+            text-align: center;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px dashed #cbd5e1;
+        }
+        .barcode-font {
+            font-family: "Libre Barcode 39", "Courier New", monospace;
+            font-size: 42px;
+            line-height: 1;
+            letter-spacing: 2px;
+        }
+        .barcode-caption {
+            margin-top: 4px;
+            font-size: 11px;
+            font-family: ui-monospace, monospace;
+            letter-spacing: 0.12em;
+            color: var(--muted);
+        }
+        .section {
+            margin: 0 0 22px;
+        }
+        .section-title {
+            margin: 0 0 12px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid var(--brand);
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--brand);
+        }
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        .card {
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 16px;
+            min-height: 100%;
+        }
+        .card h3 {
+            margin: 0 0 8px;
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+        .card .name {
+            font-size: 16px;
+            font-weight: 800;
+            margin-bottom: 6px;
+        }
+        .card .addr, .card .contact {
+            font-size: 13px;
+            color: #334155;
+        }
+        .card .contact { margin-top: 10px; }
+        .card .contact div { margin-top: 2px; }
+        table.details {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        table.details th,
+        table.details td {
+            border: 1px solid var(--line);
+            padding: 10px 12px;
+            text-align: left;
+            vertical-align: top;
+        }
+        table.details th {
+            width: 28%;
+            background: var(--wash);
+            color: var(--muted);
+            font-weight: 700;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        table.details td { font-weight: 600; }
+        .route {
+            display: grid;
+            grid-template-columns: 1fr 40px 1fr;
+            gap: 8px;
+            align-items: stretch;
+            margin-top: 12px;
+        }
+        .route-box {
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 14px;
+            background: #fff;
+        }
+        .route-box .eyebrow {
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+        .route-box .place {
+            margin-top: 4px;
+            font-size: 14px;
+            font-weight: 800;
+        }
+        .route-arrow {
             display: flex;
-            flex-wrap: wrap;
-            align-items: flex-end;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            color: var(--brand);
+            font-weight: 800;
+        }
+        .item-photo {
+            margin-top: 12px;
+            max-width: 220px;
+            max-height: 160px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            object-fit: cover;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .costs {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+        .cost-box {
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 12px;
+            background: var(--wash);
+        }
+        .cost-box.total {
+            background: var(--brand);
+            border-color: var(--brand);
+            color: #fff;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .cost-box .lbl {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            opacity: 0.8;
+        }
+        .cost-box .amt {
+            margin-top: 4px;
+            font-size: 18px;
+            font-weight: 800;
+        }
+        .timeline {
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .timeline table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        .timeline th {
+            background: var(--brand);
+            color: #fff;
+            text-align: left;
+            padding: 10px 12px;
+            font-weight: 700;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .timeline td {
+            padding: 10px 12px;
+            border-top: 1px solid var(--line);
+            vertical-align: top;
+        }
+        .timeline tr:nth-child(even) td {
+            background: #fafbfc;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .footer {
+            margin-top: 8px;
+            padding: 20px 32px 28px;
+            border-top: 1px solid var(--line);
+            background: var(--wash);
+            display: flex;
             justify-content: space-between;
-            gap: 24px;
+            gap: 16px;
+            flex-wrap: wrap;
+            font-size: 12px;
+            color: var(--muted);
         }
-        .footer-item {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-        .footer-label {
-            font-size: 14px;
-            color: #94a3b8;
-        }
-        .footer-value {
-            font-size: 14px;
-            color: #e2e8f0;
-            font-family: monospace;
-        }
-        .footer-total {
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            gap: 4px;
-            padding-left: 32px;
-            border-left: 1px solid #334155;
-        }
-        .footer-total-label {
-            font-size: 14px;
-            color: #94a3b8;
-        }
-        .footer-total-amount {
-            font-size: 32px;
-            font-weight: bold;
-            color: #7f0df2;
+        .footer strong { color: var(--ink); }
+        .muted { color: var(--muted); }
+        @media (max-width: 720px) {
+            .brand-bar, .hero, .two-col, .route, .costs { grid-template-columns: 1fr; }
+            .hero { display: grid; }
+            .route { grid-template-columns: 1fr; }
+            .route-arrow { transform: rotate(90deg); }
+            .doc-meta { text-align: left; }
+            .body, .brand-bar, .footer { padding-left: 18px; padding-right: 18px; }
         }
         @media print {
-            body { background: white; }
-            .container { padding: 0; }
+            @page { margin: 12mm; }
+            body { background: #fff; }
+            .toolbar { display: none !important; }
+            .sheet-wrap { padding: 0; }
+            .sheet {
+                max-width: none;
+                border: 0;
+                box-shadow: none;
+            }
+            a { color: inherit; text-decoration: none; }
+            .brand-logo, .item-photo, .status-pill, .cost-box.total, .timeline th {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
         }
     </style>
+    <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39&display=swap" rel="stylesheet"/>
 </head>
 <body>
-    <div class="container">
-        <div class="pdf-container">
-            <div class="pdf-header">
-                <div class="logo-section">
-                    <div class="logo-icon">
-                        <span class="material-symbols-outlined" style="font-size: 24px;">package_2</span>
-                    </div>
-                    <div class="company-info">
-                        <h3><?php echo htmlspecialchars($companyName); ?></h3>
-                        <p><?php echo htmlspecialchars($companyTagline); ?></p>
-                    </div>
-                </div>
-                <div class="header-right">
-                    <h2>SHIPMENT TRACKING DETAILS</h2>
-                    <p>ID: #<?php echo htmlspecialchars($shipment['tracking_number']); ?></p>
-                </div>
-            </div>
-            
-            <div class="pdf-content">
-                <section>
-                    <h4 class="section-title">Shipment Overview</h4>
-                    <div class="overview-section">
-                        <div class="overview-left">
-                            <div class="overview-item">
-                                <span class="overview-label">Current Status</span>
-                                <div class="status-badge <?php echo $statusClass; ?>">
-                                    <span class="material-symbols-outlined" style="font-size: 14px;">local_shipping</span>
-                                    <span><?php echo htmlspecialchars($shipment['status']); ?></span>
-                                </div>
-                            </div>
-                            <div class="overview-item">
-                                <span class="overview-label">Estimated Delivery</span>
-                                <span class="overview-value"><?php echo htmlspecialchars($estimatedDelivery); ?></span>
-                            </div>
-                            <div class="overview-item">
-                                <span class="overview-label">Reference No.</span>
-                                <span class="overview-value"><?php echo htmlspecialchars($shipment['reference_number'] ?: 'N/A'); ?></span>
-                            </div>
-                        </div>
-                        <div class="barcode-section">
-                            <span class="barcode-label">Scan to Track</span>
-                            <div class="barcode">*<?php echo htmlspecialchars($shipment['tracking_number']); ?>*</div>
-                            <div class="barcode-text"><?php echo htmlspecialchars($shipment['tracking_number']); ?></div>
-                        </div>
-                    </div>
-                </section>
-                
-                <section class="info-grid">
-                    <div class="info-section">
-                        <h4 class="section-title">Sender Information</h4>
-                        <div>
-                            <h4><?php echo htmlspecialchars($shipment['sender_name']); ?></h4>
-                            <p class="address">
-                                <?php echo htmlspecialchars($shipment['sender_address']); ?><br/>
-                                <?php if ($shipment['sender_city']): ?>
-                                <?php echo htmlspecialchars($shipment['sender_city'] . ', ' . $shipment['sender_state'] . ' ' . $shipment['sender_zip']); ?><br/>
-                                <?php endif; ?>
-                                <?php echo htmlspecialchars($shipment['sender_country']); ?>
-                            </p>
-                            <?php if ($shipment['sender_email'] || $shipment['sender_phone']): ?>
-                            <div class="contact-info">
-                                <?php if ($shipment['sender_phone']): ?>
-                                <div class="contact-item">
-                                    <span class="material-symbols-outlined contact-icon">call</span>
-                                    <span><?php echo htmlspecialchars($shipment['sender_phone']); ?></span>
-                                </div>
-                                <?php endif; ?>
-                                <?php if ($shipment['sender_email']): ?>
-                                <div class="contact-item">
-                                    <span class="material-symbols-outlined contact-icon">mail</span>
-                                    <span><?php echo htmlspecialchars($shipment['sender_email']); ?></span>
-                                </div>
-                                <?php endif; ?>
-                            </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                    <div class="info-section">
-                        <h4 class="section-title">Receiver Information</h4>
-                        <div>
-                            <h4><?php echo htmlspecialchars($shipment['recipient_name']); ?></h4>
-                            <p class="address">
-                                <?php echo htmlspecialchars($shipment['recipient_address']); ?><br/>
-                                <?php if ($shipment['recipient_city']): ?>
-                                <?php echo htmlspecialchars($shipment['recipient_city'] . ', ' . $shipment['recipient_state'] . ' ' . $shipment['recipient_zip']); ?><br/>
-                                <?php endif; ?>
-                                <?php echo htmlspecialchars($shipment['recipient_country']); ?>
-                            </p>
-                            <?php if ($shipment['recipient_email'] || $shipment['recipient_phone']): ?>
-                            <div class="contact-info">
-                                <?php if ($shipment['recipient_phone']): ?>
-                                <div class="contact-item">
-                                    <span class="material-symbols-outlined contact-icon">call</span>
-                                    <span><?php echo htmlspecialchars($shipment['recipient_phone']); ?></span>
-                                </div>
-                                <?php endif; ?>
-                                <?php if ($shipment['recipient_email']): ?>
-                                <div class="contact-item">
-                                    <span class="material-symbols-outlined contact-icon">mail</span>
-                                    <span><?php echo htmlspecialchars($shipment['recipient_email']); ?></span>
-                                </div>
-                                <?php endif; ?>
-                            </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                </section>
-                
-                <section>
-                    <h4 class="section-title">Tracking & Destination Details</h4>
-                    <table class="details-table">
-                        <thead>
-                            <tr>
-                                <th>Service Type</th>
-                                <th>Weight</th>
-                                <th>Dimensions</th>
-                                <th>Handling</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td><?php echo htmlspecialchars($shipment['service_type']); ?></td>
-                                <td><?php echo htmlspecialchars($weight); ?></td>
-                                <td><?php echo htmlspecialchars($shipment['dimensions'] ?: 'N/A'); ?></td>
-                                <td><?php echo htmlspecialchars($shipment['dimensions'] ? 'Standard' : 'N/A'); ?></td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <div class="location-row">
-                        <div class="location-item">
-                            <span class="material-symbols-outlined location-icon">trip_origin</span>
-                            <div>
-                                <span class="location-label">Origin</span>
-                                <div class="location-name"><?php echo htmlspecialchars($pickupLocation); ?></div>
-                                <div class="location-date"><?php echo htmlspecialchars($createdDate); ?> - <?php echo htmlspecialchars($generatedTime); ?></div>
-                            </div>
-                        </div>
-                        <div class="location-item">
-                            <span class="material-symbols-outlined location-icon">location_on</span>
-                            <div>
-                                <span class="location-label">Destination</span>
-                                <div class="location-name"><?php echo htmlspecialchars($dropoffLocation); ?></div>
-                                <div class="location-date">Est. <?php echo htmlspecialchars($estimatedDelivery); ?></div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="map-placeholder">
-                        <div class="map-label">
-                            <span class="material-symbols-outlined" style="font-size: 16px; color: #7f0df2;">route</span>
-                            <span>Route Map Visualization</span>
-                        </div>
-                    </div>
-                </section>
-            </div>
-            
-            <div class="pdf-footer">
-                <h4 class="footer-title">Financial Summary</h4>
-                <div class="footer-content">
-                    <div class="footer-item">
-                        <span class="footer-label">Shipment Worth</span>
-                        <span class="footer-value">$<?php echo htmlspecialchars($shipmentWorth); ?></span>
-                    </div>
-                    <div class="footer-item">
-                        <span class="footer-label">Shipping Cost</span>
-                        <span class="footer-value">$<?php echo htmlspecialchars($shippingCost); ?></span>
-                    </div>
-                    <div class="footer-item">
-                        <span class="footer-label">Clearance Cost</span>
-                        <span class="footer-value">$<?php echo htmlspecialchars($clearanceCost); ?></span>
-                    </div>
-                    <div class="footer-item">
-                        <span class="footer-label">Due Date</span>
-                        <span class="footer-value"><?php echo htmlspecialchars($estimatedDelivery); ?></span>
-                    </div>
-                    <div class="footer-total">
-                        <span class="footer-total-label">Total Due</span>
-                        <span class="footer-total-amount">$<?php echo htmlspecialchars($totalCost); ?></span>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <div class="toolbar no-print">
+        <button type="button" class="primary" onclick="window.print()">Print / Save as PDF</button>
+        <a href="<?php echo receipt_h(trackingResultUrl($shipment['tracking_number'])); ?>">Open tracking</a>
     </div>
+
+    <div class="sheet-wrap">
+        <article class="sheet">
+            <header class="brand-bar">
+                <div class="brand-left">
+                    <img class="brand-logo" src="<?php echo receipt_h($logoSrc); ?>" alt="<?php echo receipt_h($companyName); ?> logo"/>
+                    <div class="brand-text">
+                        <h1><?php echo receipt_h($companyName); ?></h1>
+                        <p><?php echo receipt_h($companyTagline); ?></p>
+                    </div>
+                </div>
+                <div class="doc-meta">
+                    <div class="label">Official document</div>
+                    <div class="title">Shipping Receipt</div>
+                    <div class="sub">Issued <?php echo receipt_h($generatedDate); ?> · <?php echo receipt_h($generatedTime); ?></div>
+                </div>
+            </header>
+
+            <div class="body">
+                <section class="hero">
+                    <div class="panel">
+                        <h2>Tracking number</h2>
+                        <div class="tracking-number"><?php echo receipt_h($shipment['tracking_number']); ?></div>
+                        <span class="status-pill"><?php echo receipt_h($shipment['status']); ?></span>
+                        <div class="barcode-block">
+                            <div class="barcode-font">*<?php echo receipt_h($trackingClean); ?>*</div>
+                            <div class="barcode-caption"><?php echo receipt_h($shipment['tracking_number']); ?></div>
+                        </div>
+                    </div>
+                    <div class="panel">
+                        <h2>Shipment summary</h2>
+                        <div class="kv">
+                            <div class="k">Service</div>
+                            <div class="v"><?php echo receipt_h($shipment['service_type'] ?: 'N/A'); ?></div>
+                            <div class="k">Created</div>
+                            <div class="v"><?php echo receipt_h($createdDisplay); ?></div>
+                            <div class="k">Est. delivery</div>
+                            <div class="v"><?php echo receipt_h($estimatedDelivery); ?></div>
+                            <div class="k">Reference</div>
+                            <div class="v"><?php echo receipt_h($shipment['reference_number'] ?: '—'); ?></div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="section">
+                    <h2 class="section-title">Parties</h2>
+                    <div class="two-col">
+                        <div class="card">
+                            <h3>Shipper / Sender</h3>
+                            <div class="name"><?php echo receipt_h($shipment['sender_name']); ?></div>
+                            <div class="addr">
+                                <?php echo receipt_h($shipment['sender_address']); ?><br/>
+                                <?php
+                                $senderLine = trim(($shipment['sender_city'] ?? '') . (!empty($shipment['sender_state']) ? ', ' . $shipment['sender_state'] : '') . (!empty($shipment['sender_zip']) ? ' ' . $shipment['sender_zip'] : ''));
+                                if ($senderLine !== '') {
+                                    echo receipt_h($senderLine) . '<br/>';
+                                }
+                                echo receipt_h($shipment['sender_country'] ?? '');
+                                ?>
+                            </div>
+                            <div class="contact">
+                                <?php if (!empty($shipment['sender_phone'])): ?>
+                                    <div>Phone: <?php echo receipt_h($shipment['sender_phone']); ?></div>
+                                <?php endif; ?>
+                                <?php if (!empty($shipment['sender_email'])): ?>
+                                    <div>Email: <?php echo receipt_h($shipment['sender_email']); ?></div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <h3>Consignee / Recipient</h3>
+                            <div class="name"><?php echo receipt_h($shipment['recipient_name']); ?></div>
+                            <div class="addr">
+                                <?php echo receipt_h($shipment['recipient_address']); ?><br/>
+                                <?php
+                                $recipientLine = trim(($shipment['recipient_city'] ?? '') . (!empty($shipment['recipient_state']) ? ', ' . $shipment['recipient_state'] : '') . (!empty($shipment['recipient_zip']) ? ' ' . $shipment['recipient_zip'] : ''));
+                                if ($recipientLine !== '') {
+                                    echo receipt_h($recipientLine) . '<br/>';
+                                }
+                                echo receipt_h($shipment['recipient_country'] ?? '');
+                                ?>
+                            </div>
+                            <div class="contact">
+                                <?php if (!empty($shipment['recipient_phone'])): ?>
+                                    <div>Phone: <?php echo receipt_h($shipment['recipient_phone']); ?></div>
+                                <?php endif; ?>
+                                <?php if (!empty($shipment['recipient_email'])): ?>
+                                    <div>Email: <?php echo receipt_h($shipment['recipient_email']); ?></div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="section">
+                    <h2 class="section-title">Package &amp; route</h2>
+                    <table class="details">
+                        <tr>
+                            <th>Weight</th>
+                            <td><?php echo receipt_h($weight); ?></td>
+                            <th>Dimensions</th>
+                            <td><?php echo receipt_h($shipment['dimensions'] ?: 'N/A'); ?></td>
+                        </tr>
+                        <tr>
+                            <th>Service type</th>
+                            <td><?php echo receipt_h($shipment['service_type'] ?: 'N/A'); ?></td>
+                            <th>Current status</th>
+                            <td><?php echo receipt_h($shipment['status']); ?></td>
+                        </tr>
+                    </table>
+                    <div class="route">
+                        <div class="route-box">
+                            <div class="eyebrow">Origin / Pickup</div>
+                            <div class="place"><?php echo receipt_h($pickupLocation); ?></div>
+                        </div>
+                        <div class="route-arrow">→</div>
+                        <div class="route-box">
+                            <div class="eyebrow">Destination / Drop-off</div>
+                            <div class="place"><?php echo receipt_h($dropoffLocation); ?></div>
+                        </div>
+                    </div>
+                    <?php if ($itemImageSrc): ?>
+                        <div style="margin-top:14px;">
+                            <div class="eyebrow muted" style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;">Shipment photo</div>
+                            <img class="item-photo" src="<?php echo receipt_h($itemImageSrc); ?>" alt="Shipment item"/>
+                        </div>
+                    <?php endif; ?>
+                </section>
+
+                <?php if ($shippingCost !== null || $clearanceCost !== null || $shipmentWorth !== null || $totalCost !== null): ?>
+                <section class="section">
+                    <h2 class="section-title">Charges</h2>
+                    <div class="costs">
+                        <div class="cost-box">
+                            <div class="lbl">Shipment worth</div>
+                            <div class="amt"><?php echo $shipmentWorth !== null ? '$' . receipt_h($shipmentWorth) : '—'; ?></div>
+                        </div>
+                        <div class="cost-box">
+                            <div class="lbl">Shipping</div>
+                            <div class="amt"><?php echo $shippingCost !== null ? '$' . receipt_h($shippingCost) : '—'; ?></div>
+                        </div>
+                        <div class="cost-box">
+                            <div class="lbl">Clearance</div>
+                            <div class="amt"><?php echo $clearanceCost !== null ? '$' . receipt_h($clearanceCost) : '—'; ?></div>
+                        </div>
+                        <div class="cost-box total">
+                            <div class="lbl">Total due</div>
+                            <div class="amt"><?php echo $totalCost !== null ? '$' . receipt_h($totalCost) : '—'; ?></div>
+                        </div>
+                    </div>
+                </section>
+                <?php endif; ?>
+
+                <section class="section">
+                    <h2 class="section-title">Travel history</h2>
+                    <?php if (empty($publicEvents)): ?>
+                        <p class="muted" style="font-size:13px;">No public tracking events recorded yet.</p>
+                    <?php else: ?>
+                        <div class="timeline">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th style="width:22%;">Date &amp; time</th>
+                                        <th style="width:22%;">Event</th>
+                                        <th>Description</th>
+                                        <th style="width:22%;">Location</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($publicEvents as $event): ?>
+                                    <tr>
+                                        <td><?php echo receipt_h(formatDateTime($event['event_date'] ?? '')); ?></td>
+                                        <td><?php echo receipt_h($event['event_type'] ?? ''); ?></td>
+                                        <td><?php echo receipt_h($event['description'] ?? ''); ?></td>
+                                        <td><?php echo receipt_h($event['location'] ?? '—'); ?></td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
+                </section>
+            </div>
+
+            <footer class="footer">
+                <div>
+                    <strong><?php echo receipt_h($companyName); ?></strong><br/>
+                    Official shipping receipt · Keep for your records<br/>
+                    Track anytime with the tracking number above.
+                </div>
+                <div style="text-align:right;">
+                    <?php if ($supportPhone): ?>Support: <?php echo receipt_h($supportPhone); ?><br/><?php endif; ?>
+                    <?php if ($supportEmail): ?>Email: <?php echo receipt_h($supportEmail); ?><br/><?php endif; ?>
+                    Generated <?php echo receipt_h($generatedDate . ' ' . $generatedTime); ?>
+                </div>
+            </footer>
+        </article>
+    </div>
+
+    <?php if ($autoprint): ?>
+    <script>
+        window.addEventListener('load', function () {
+            setTimeout(function () { window.print(); }, 400);
+        });
+    </script>
+    <?php endif; ?>
 </body>
 </html>
-

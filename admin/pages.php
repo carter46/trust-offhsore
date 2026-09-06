@@ -123,6 +123,7 @@ async function createPageEntry(slug, title) {
     try {
         const response = await fetch('/api/pages.php', {
             method: 'POST',
+            credentials: 'same-origin',
             headers: {
                 'Content-Type': 'application/json',
             },

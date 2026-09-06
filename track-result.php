@@ -87,7 +87,7 @@ include __DIR__ . '/includes/header.php';
             </h1>
             <div class="mt-4 md:mt-0 flex gap-3">
                 <a href="/api/generate-pdf.php?id=<?php echo urlencode($trackingId); ?>" target="_blank" class="flex items-center text-sm font-bold text-yellow-600 hover:bg-gray-200 px-3 py-2 rounded transition-colors">
-                    <span class="material-symbols-outlined mr-2 !text-lg">print</span> Print
+                    <span class="material-symbols-outlined mr-2 !text-lg">print</span> Print receipt
                 </a>
                 <button class="flex items-center text-sm font-bold text-yellow-600 hover:bg-gray-200 px-3 py-2 rounded transition-colors">
                     <span class="material-symbols-outlined mr-2 !text-lg">share</span> Share
@@ -159,7 +159,7 @@ include __DIR__ . '/includes/header.php';
             </div>
             <div class="bg-gray-50 px-6 py-4 border-t border-gray-200 flex flex-wrap gap-x-8 gap-y-3">
                 <a href="/api/generate-pdf.php?id=<?php echo urlencode($trackingId); ?>" target="_blank" class="text-yellow-600 font-bold text-xs md:text-sm uppercase hover:underline flex items-center group">
-                    <span class="material-symbols-outlined mr-2 !text-lg text-gray-400 group-hover:text-yellow-600 transition-colors">receipt_long</span> Obtain Proof of Delivery
+                    <span class="material-symbols-outlined mr-2 !text-lg text-gray-400 group-hover:text-yellow-600 transition-colors">receipt_long</span> Print Receipt
                 </a>
                 <button class="text-yellow-600 font-bold text-xs md:text-sm uppercase hover:underline flex items-center group">
                     <span class="material-symbols-outlined mr-2 !text-lg text-gray-400 group-hover:text-yellow-600 transition-colors">help</span> Delivery FAQ

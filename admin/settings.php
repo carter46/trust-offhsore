@@ -1,4 +1,97 @@
 <?php
+/**
+ * Settings (Admin)
+ * Auth first so AJAX actions (e.g. test email) share the same session as this page.
+ */
+require_once __DIR__ . '/includes/admin-auth.php';
+
+// ---- AJAX: send test email (avoids /api 401 when session cookie is not attached to /api) ----
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST'
+    && (
+        (isset($_POST['action']) && $_POST['action'] === 'send_test_email')
+        || (isset($_SERVER['HTTP_X_TEST_EMAIL']) && $_SERVER['HTTP_X_TEST_EMAIL'] === '1')
+    )
+) {
+    header('Content-Type: application/json');
+    set_time_limit(30);
+
+    $raw = file_get_contents('php://input');
+    $json = [];
+    if ($raw && strpos((string) ($_SERVER['CONTENT_TYPE'] ?? ''), 'application/json') !== false) {
+        $json = json_decode($raw, true) ?: [];
+    }
+    $emailInput = $_POST['email'] ?? ($json['email'] ?? '');
+    $testEmail = filter_var(trim((string) $emailInput), FILTER_VALIDATE_EMAIL);
+
+    if (!$testEmail) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Please enter a valid email address.']);
+        exit;
+    }
+
+    try {
+        $companyName = getSetting('company_name', 'Shipping Company');
+        $mockShipment = [
+            'tracking_number' => 'TEST-' . strtoupper(substr(md5((string) time()), 0, 8)),
+            'reference_number' => 'TEST-REF-' . date('Ymd'),
+            'status' => 'Out for Delivery',
+            'service_type' => $companyName . ' Express',
+            'recipient_name' => 'Test Recipient',
+            'recipient_address' => '123 Test Street',
+            'recipient_city' => 'Test City',
+            'recipient_state' => 'TS',
+            'recipient_zip' => '12345',
+            'recipient_country' => 'United States',
+            'estimated_delivery' => date('Y-m-d', strtotime('+1 day')),
+        ];
+        $mockTrackingEvents = [
+            [
+                'event_type' => 'Order Processed',
+                'description' => 'Shipment label created',
+                'location' => 'Origin Facility',
+                'event_date' => date('Y-m-d H:i:s', strtotime('-2 days')),
+            ],
+            [
+                'event_type' => 'In Transit - Hub North',
+                'description' => 'Package in transit',
+                'location' => 'Distribution Center',
+                'event_date' => date('Y-m-d H:i:s', strtotime('-1 day')),
+            ],
+            [
+                'event_type' => 'Out for Delivery',
+                'description' => 'Package out for delivery',
+                'location' => 'Local Facility',
+                'event_date' => date('Y-m-d H:i:s'),
+            ],
+        ];
+
+        $subject = 'Test Email - ' . $companyName . ' Email Configuration';
+        $body = generateShipmentEmailTemplate($mockShipment, $mockTrackingEvents);
+        $testNote = '
+        <div style="background-color: #fbbf24; color: #1a1a1a; padding: 16px; margin-bottom: 20px; border-radius: 8px; text-align: center; font-weight: bold;">
+            This is a TEST EMAIL to verify your SMTP configuration is working correctly.
+        </div>';
+        $body = str_replace(
+            '<body style="background-color: #f6f6f8; padding: 20px 0;">',
+            '<body style="background-color: #f6f6f8; padding: 20px 0;">' . $testNote,
+            $body
+        );
+
+        $result = sendEmail($testEmail, $subject, $body, true);
+        if (!empty($result['success'])) {
+            echo json_encode(['success' => true, 'message' => 'Test email sent successfully']);
+        } else {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'message' => $result['message'] ?? 'Failed to send test email']);
+        }
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
+    }
+    exit;
+}
+
 include __DIR__ . '/includes/admin-header.php';
 
 $success = '';
@@ -605,30 +698,41 @@ if ($result) {
             const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
             
             try {
-                const response = await fetch('/api/test-email.php', {
+                // Post to this same admin page so the logged-in session is always available
+                // (avoids 401 from /api/test-email.php when the session cookie is not sent to /api).
+                const formData = new FormData();
+                formData.append('action', 'send_test_email');
+                formData.append('email', email);
+
+                const response = await fetch('/admin/settings.php', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        email: email
-                    }),
+                    credentials: 'same-origin',
+                    body: formData,
                     signal: controller.signal
                 });
-                
+
                 clearTimeout(timeoutId);
-                
-                if (!response.ok) {
-                    throw new Error('Server responded with status: ' + response.status);
+
+                let data = null;
+                try {
+                    data = await response.json();
+                } catch (parseErr) {
+                    throw new Error(response.status === 401
+                        ? 'Unauthorized — please log in again and retry.'
+                        : ('Server responded with status: ' + response.status));
                 }
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    testEmailResult.innerHTML = '<p class="text-green-600 dark:text-green-400">✓ Test email sent successfully! Check your inbox.</p>';
-                } else {
-                    testEmailResult.innerHTML = '<p class="text-red-600 dark:text-red-400">✗ Failed to send test email: ' + (data.message || 'Unknown error') + '</p>';
+
+                if (!response.ok || !data.success) {
+                    const msg = (data && (data.message || data.error))
+                        ? (data.message || data.error)
+                        : ('Server responded with status: ' + response.status);
+                    if (response.status === 401) {
+                        throw new Error('Unauthorized — please log in again and retry.');
+                    }
+                    throw new Error(msg);
                 }
+
+                testEmailResult.innerHTML = '<p class="text-green-600 dark:text-green-400">✓ Test email sent successfully! Check your inbox.</p>';
             } catch (error) {
                 clearTimeout(timeoutId);
                 if (error.name === 'AbortError') {

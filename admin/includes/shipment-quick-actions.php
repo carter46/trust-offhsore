@@ -24,6 +24,7 @@ function renderShipmentActionMenu($shipment, $options = []) {
 
     $viewUrl = htmlspecialchars(trackingResultUrl($tracking));
     $editUrl = '/admin/manage-shipments.php?id=' . $id;
+    $receiptUrl = htmlspecialchars(shipmentReceiptUrl($tracking));
     $pdfUrl = '/admin/view-shipment-pdf.php?id=' . $id;
     ?>
     <div class="admin-actions-wrap relative inline-block text-left">
@@ -36,7 +37,7 @@ function renderShipmentActionMenu($shipment, $options = []) {
             <span class="material-icons-outlined">more_vert</span>
         </button>
         <div id="<?php echo htmlspecialchars($menuId); ?>"
-             class="admin-actions-menu hidden fixed z-[80] w-48 rounded-md border border-gray-200 dark:border-gray-600 bg-white dark:bg-surface-dark py-1"
+             class="admin-actions-menu hidden fixed z-[80] w-52 rounded-md border border-gray-200 dark:border-gray-600 bg-white dark:bg-surface-dark py-1"
              role="menu">
             <button type="button"
                     class="admin-quick-update-btn w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -50,9 +51,10 @@ function renderShipmentActionMenu($shipment, $options = []) {
                 Change status
             </button>
             <a href="<?php echo $viewUrl; ?>" target="_blank" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700" role="menuitem">View tracking</a>
+            <a href="<?php echo $receiptUrl; ?>" target="_blank" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700" role="menuitem">Print receipt</a>
             <a href="<?php echo htmlspecialchars($editUrl); ?>" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700" role="menuitem">Edit shipment</a>
             <?php if ($showPdf): ?>
-            <a href="<?php echo htmlspecialchars($pdfUrl); ?>" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700" role="menuitem">Download PDF</a>
+            <a href="<?php echo htmlspecialchars($pdfUrl); ?>" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700" role="menuitem">View document</a>
             <?php endif; ?>
             <form method="POST" action="/admin/delete-shipment.php" class="border-t border-gray-100 dark:border-gray-700"
                   onsubmit="return confirm('Delete this shipment permanently? This will erase it from the database and delete all tracking events.');">
@@ -150,7 +152,7 @@ function renderShipmentQuickUpdateModal() {
         function positionMenu(btn, menu) {
             const rect = btn.getBoundingClientRect();
             menu.style.top = (rect.bottom + 4) + 'px';
-            menu.style.left = Math.max(8, rect.right - 192) + 'px';
+            menu.style.left = Math.max(8, rect.right - 208) + 'px';
         }
 
         document.addEventListener('click', function (e) {

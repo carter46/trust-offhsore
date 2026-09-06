@@ -50,6 +50,14 @@ $latestEvents = getLatestPublicEventsForShipments(array_column($recentShipments,
 </div>
 
 <?php renderAdminFlashMessages(); ?>
+<?php if (isset($_GET['created']) && $_GET['created'] == '1'): ?>
+    <div class="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 px-4 py-3 rounded mb-6">
+        Shipment created successfully<?php echo !empty($_GET['tracking']) ? ': <strong>' . htmlspecialchars($_GET['tracking']) . '</strong>' : ''; ?>.
+        <?php if (!empty($_GET['tracking'])): ?>
+            <a class="underline font-bold ml-2" href="<?php echo htmlspecialchars(shipmentReceiptUrl($_GET['tracking'])); ?>" target="_blank" rel="noopener">Print receipt</a>
+        <?php endif; ?>
+    </div>
+<?php endif; ?>
 <?php if (isset($_GET['deleted']) && $_GET['deleted'] == '1'): ?>
     <div class="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 px-4 py-3 rounded mb-6">
         Shipment deleted successfully.
