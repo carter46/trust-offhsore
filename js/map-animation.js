@@ -1,6 +1,8 @@
 /**
  * Google Maps Animation
- * Animated route and moving truck marker
+ * Route: Pickup → Current Location → Delivery, with labeled endpoints.
+ * Always draws a straight geodesic line when driving directions are unavailable
+ * (e.g. UK → US), so the shipment route is visible at all times.
  */
 
 let map;
@@ -8,11 +10,28 @@ let directionsService;
 let directionsRenderer;
 let truckMarker;
 let routePolyline;
+let endpointOverlays = [];
 
 function toNumber(value) {
-    if (value === null || value === undefined) return null;
+    if (value === null || value === undefined || value === '') return null;
     const n = typeof value === 'number' ? value : parseFloat(value);
     return Number.isFinite(n) ? n : null;
+}
+
+function escapeHtml(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function getRouteEndpointLabels() {
+    const fb = window.__shipmentRouteFallback || {};
+    return {
+        pickup: (fb.pickup && fb.pickup.name) ? String(fb.pickup.name) : 'Pickup Address',
+        dropoff: (fb.dropoff && fb.dropoff.name) ? String(fb.dropoff.name) : 'Delivery Address'
+    };
 }
 
 function getFallbackEndpoints() {
@@ -21,146 +40,226 @@ function getFallbackEndpoints() {
     const pickupLng = toNumber(fb?.pickup?.lng);
     const dropoffLat = toNumber(fb?.dropoff?.lat);
     const dropoffLng = toNumber(fb?.dropoff?.lng);
+    const labels = getRouteEndpointLabels();
+
+    if (pickupLat === null || pickupLng === null || dropoffLat === null || dropoffLng === null) {
+        return null;
+    }
+    // Reject 0,0 ghost points
+    if (pickupLat === 0 && pickupLng === 0) return null;
+    if (dropoffLat === 0 && dropoffLng === 0) return null;
+
+    return {
+        pickup: { lat: pickupLat, lng: pickupLng, name: labels.pickup },
+        dropoff: { lat: dropoffLat, lng: dropoffLng, name: labels.dropoff }
+    };
+}
+
+function geocodeAddress(query) {
+    return new Promise((resolve) => {
+        if (!query || !window.google || !google.maps || !google.maps.Geocoder) {
+            resolve(null);
+            return;
+        }
+        const trimmed = String(query).trim();
+        if (trimmed.length < 2 || trimmed === 'Pickup Address' || trimmed === 'Delivery Address') {
+            resolve(null);
+            return;
+        }
+        const geocoder = new google.maps.Geocoder();
+        geocoder.geocode({ address: trimmed }, (results, status) => {
+            if (status === 'OK' && results && results[0] && results[0].geometry) {
+                resolve({
+                    lat: results[0].geometry.location.lat(),
+                    lng: results[0].geometry.location.lng(),
+                    name: results[0].formatted_address || trimmed
+                });
+            } else {
+                resolve(null);
+            }
+        });
+    });
+}
+
+/** Try full address → city+country → country so a line can always be drawn. */
+async function geocodeWithFallbacks(queries) {
+    const seen = new Set();
+    for (const raw of queries) {
+        const q = String(raw || '').trim();
+        if (!q || seen.has(q.toLowerCase())) continue;
+        seen.add(q.toLowerCase());
+        const geo = await geocodeAddress(q);
+        if (geo) return geo;
+    }
+    return null;
+}
+
+function endpointGeocodeQueries(side, displayLabel) {
+    const fb = window.__shipmentRouteFallback || {};
+    const ep = (fb && fb[side]) || {};
+    const city = String(ep.city || '').trim();
+    const country = String(ep.country || '').trim();
+    const cityCountry = [city, country].filter(Boolean).join(', ');
+    return [
+        ep.query,
+        ep.name,
+        displayLabel,
+        cityCountry,
+        city,
+        country
+    ];
+}
+
+/**
+ * Ensure we have pickup/dropoff coords. If lat/lng missing, geocode the label
+ * (city name, country, or full address) so a route can always be drawn.
+ * Display labels stay as the entered city/address — only coordinates are resolved.
+ */
+async function resolveFallbackEndpoints() {
+    let fallback = getFallbackEndpoints();
+    if (fallback) return fallback;
+
+    const labels = getRouteEndpointLabels();
+    const fb = window.__shipmentRouteFallback || {};
+
+    let pickupLat = toNumber(fb?.pickup?.lat);
+    let pickupLng = toNumber(fb?.pickup?.lng);
+    let dropoffLat = toNumber(fb?.dropoff?.lat);
+    let dropoffLng = toNumber(fb?.dropoff?.lng);
+
+    const pickupName = labels.pickup;
+    const dropoffName = labels.dropoff;
+
+    if (pickupLat === null || pickupLng === null || (pickupLat === 0 && pickupLng === 0)) {
+        const geo = await geocodeWithFallbacks(endpointGeocodeQueries('pickup', pickupName));
+        if (geo) {
+            pickupLat = geo.lat;
+            pickupLng = geo.lng;
+        }
+    }
+    if (dropoffLat === null || dropoffLng === null || (dropoffLat === 0 && dropoffLng === 0)) {
+        const geo = await geocodeWithFallbacks(endpointGeocodeQueries('dropoff', dropoffName));
+        if (geo) {
+            dropoffLat = geo.lat;
+            dropoffLng = geo.lng;
+        }
+    }
 
     if (pickupLat === null || pickupLng === null || dropoffLat === null || dropoffLng === null) {
         return null;
     }
 
     return {
-        pickup: { lat: pickupLat, lng: pickupLng, name: fb?.pickup?.name || 'Pickup' },
-        dropoff: { lat: dropoffLat, lng: dropoffLng, name: fb?.dropoff?.name || 'Dropoff' }
+        pickup: { lat: pickupLat, lng: pickupLng, name: pickupName },
+        dropoff: { lat: dropoffLat, lng: dropoffLng, name: dropoffName }
     };
 }
 
-function sameCoord(a, b) {
-    return Math.abs(a.lat - b.lat) < 0.0001 && Math.abs(a.lng - b.lng) < 0.0001;
+/** Latest tracking event that has coordinates = current package position. */
+function getCurrentLocationFromEvents(events) {
+    if (!Array.isArray(events) || events.length === 0) return null;
+
+    for (let i = 0; i < events.length; i++) {
+        const e = events[i];
+        const lat = toNumber(e.latitude);
+        const lng = toNumber(e.longitude);
+        if (lat === null || lng === null) continue;
+        if (lat === 0 && lng === 0) continue;
+
+        const name =
+            (e.location && String(e.location).trim()) ||
+            (e.description && String(e.description).trim()) ||
+            (e.event_type && String(e.event_type).trim()) ||
+            'Current Location';
+
+        return { lat: lat, lng: lng, name: name, event: e };
+    }
+
+    return null;
 }
 
-function getEndpointsFromShipment(shipment) {
-    const fb = getFallbackEndpoints() || {};
-    const pickupLat = toNumber(shipment?.pickup_latitude) ?? toNumber(fb?.pickup?.lat);
-    const pickupLng = toNumber(shipment?.pickup_longitude) ?? toNumber(fb?.pickup?.lng);
-    const dropoffLat = toNumber(shipment?.dropoff_latitude) ?? toNumber(fb?.dropoff?.lat);
-    const dropoffLng = toNumber(shipment?.dropoff_longitude) ?? toNumber(fb?.dropoff?.lng);
+function clearEndpointOverlays() {
+    endpointOverlays.forEach((overlay) => {
+        try {
+            overlay.setMap(null);
+        } catch (e) {}
+    });
+    endpointOverlays = [];
+}
 
-    return {
-        pickup: {
-            lat: pickupLat,
-            lng: pickupLng,
-            name: shipment?.pickup_location || fb?.pickup?.name || 'Pickup'
-        },
-        dropoff: {
-            lat: dropoffLat,
-            lng: dropoffLng,
-            name: shipment?.dropoff_location || fb?.dropoff?.name || 'Dropoff'
+function addEndpointAddressLabel(mapInstance, position, heading, address, variant) {
+    class AddressLabelOverlay extends google.maps.OverlayView {
+        constructor(pos, head, addr, variantName) {
+            super();
+            this.position = pos;
+            this.heading = head;
+            this.address = addr;
+            this.variant = variantName || '';
+            this.div = null;
         }
-    };
-}
 
-function getGeoTrackingEvents(events) {
-    return (events || [])
-        .filter((e) => (e.event_type || '') !== 'Admin Note')
-        .map((e) => ({
-            lat: toNumber(e.latitude),
-            lng: toNumber(e.longitude),
-            name: e.location || e.description || 'Stop',
-            event_date: e.event_date
-        }))
-        .filter((e) => e.lat !== null && e.lng !== null)
-        .sort((a, b) => new Date(a.event_date) - new Date(b.event_date));
-}
+        onAdd() {
+            const div = document.createElement('div');
+            div.className =
+                'map-endpoint-address-label' +
+                (this.variant ? ' map-endpoint-address-label--' + this.variant : '');
+            div.innerHTML =
+                '<div class="map-endpoint-address-label__inner">' +
+                '<strong>' + escapeHtml(this.heading) + '</strong>' +
+                '<span>' + escapeHtml(this.address) + '</span>' +
+                '</div>';
+            this.div = div;
+            this.getPanes().floatPane.appendChild(div);
+        }
 
-function buildRoutePoints(shipment, events) {
-    const endpoints = getEndpointsFromShipment(shipment);
-    const geoEvents = getGeoTrackingEvents(events);
-    const points = [];
+        draw() {
+            if (!this.div) return;
+            const projection = this.getProjection();
+            if (!projection) return;
+            const point = projection.fromLatLngToDivPixel(
+                new google.maps.LatLng(this.position.lat, this.position.lng)
+            );
+            if (!point) return;
+            this.div.style.left = point.x + 'px';
+            this.div.style.top = point.y + 'px';
+        }
 
-    const push = (lat, lng, name) => {
-        if (lat === null || lng === null) return;
-        const last = points[points.length - 1];
-        if (last && sameCoord(last, { lat, lng })) return;
-        points.push({ lat, lng, name: name || 'Location' });
-    };
-
-    push(endpoints.pickup.lat, endpoints.pickup.lng, endpoints.pickup.name);
-    geoEvents.forEach((e) => push(e.lat, e.lng, e.name));
-    push(endpoints.dropoff.lat, endpoints.dropoff.lng, endpoints.dropoff.name);
-
-    return { points, geoEvents, endpoints };
-}
-
-function clearRouteLayers() {
-    if (directionsRenderer) {
-        directionsRenderer.setMap(null);
+        onRemove() {
+            if (this.div && this.div.parentNode) {
+                this.div.parentNode.removeChild(this.div);
+            }
+            this.div = null;
+        }
     }
-    if (routePolyline) {
-        routePolyline.setMap(null);
-        routePolyline = null;
-    }
+
+    const overlay = new AddressLabelOverlay(position, heading, address, variant);
+    overlay.setMap(mapInstance);
+    endpointOverlays.push(overlay);
+    return overlay;
 }
 
-function drawStraightRoute(mapInstance, points, options = {}) {
-    clearRouteLayers();
-
-    if (!points.length) return;
-
-    const origin = points[0];
-    const destination = points[points.length - 1];
-
-    new google.maps.Marker({
-        position: { lat: origin.lat, lng: origin.lng },
+function placeCircleMarker(mapInstance, position, fillColor, title, zIndex) {
+    return new google.maps.Marker({
+        position: position,
         map: mapInstance,
-        title: options.originTitle || origin.name || 'Origin',
+        title: title,
         icon: {
             path: google.maps.SymbolPath.CIRCLE,
             scale: 8,
-            fillColor: '#4D148C',
+            fillColor: fillColor,
             fillOpacity: 1,
             strokeColor: '#fff',
             strokeWeight: 2
-        }
+        },
+        zIndex: zIndex || 10
     });
-
-    if (points.length > 1) {
-        new google.maps.Marker({
-            position: { lat: destination.lat, lng: destination.lng },
-            map: mapInstance,
-            title: options.destinationTitle || destination.name || 'Destination',
-            icon: {
-                path: google.maps.SymbolPath.CIRCLE,
-                scale: 8,
-                fillColor: '#FF6200',
-                fillOpacity: 1,
-                strokeColor: '#fff',
-                strokeWeight: 2
-            }
-        });
-
-        routePolyline = new google.maps.Polyline({
-            path: points.map((p) => ({ lat: p.lat, lng: p.lng })),
-            geodesic: true,
-            strokeColor: '#4D148C',
-            strokeOpacity: 0.9,
-            strokeWeight: 5
-        });
-        routePolyline.setMap(mapInstance);
-    }
-
-    const bounds = new google.maps.LatLngBounds();
-    points.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
-    mapInstance.fitBounds(bounds);
 }
 
 function placeTruckMarker(mapInstance, position, title) {
-    if (!position) return;
-
-    if (truckMarker) {
-        truckMarker.setMap(null);
-    }
-
-    truckMarker = new google.maps.Marker({
-        position: { lat: position.lat, lng: position.lng },
+    return new google.maps.Marker({
+        position: position,
         map: mapInstance,
+        title: title || 'Current Location',
         icon: {
             path: 'M 0,0 C -2,-20 -10,-22 -10,-30 A 10,10 0 1,1 10,-30 C 10,-22 2,-20 0,0 z M -12,-30 L -12,-40 L 12,-40 L 12,-30',
             fillColor: '#FF6200',
@@ -170,109 +269,86 @@ function placeTruckMarker(mapInstance, position, title) {
             scale: 1.5,
             anchor: new google.maps.Point(0, -20)
         },
-        title: title || 'Current Location'
+        zIndex: 30
     });
 }
 
-function renderShipmentMap(shipment, events) {
-    const { points, geoEvents } = buildRoutePoints(shipment, events);
-    const currentPosition = geoEvents.length
-        ? geoEvents[geoEvents.length - 1]
-        : (points.length ? points[points.length - 1] : null);
+function placeRouteLabels(mapInstance, pickup, dropoff, current) {
+    clearEndpointOverlays();
 
-    const center = currentPosition
-        ? { lat: currentPosition.lat, lng: currentPosition.lng }
-        : (points.length ? { lat: points[0].lat, lng: points[0].lng } : { lat: 39.8283, lng: -98.5795 });
+    placeCircleMarker(mapInstance, pickup, '#4D148C', pickup.name || 'Pickup', 10);
+    addEndpointAddressLabel(mapInstance, pickup, 'Pickup', pickup.name || 'Pickup Address');
 
-    map = new google.maps.Map(document.getElementById('map-container'), {
-        zoom: 6,
-        center,
-        mapTypeId: 'roadmap'
-    });
+    placeCircleMarker(mapInstance, dropoff, '#FF6200', dropoff.name || 'Delivery', 10);
+    addEndpointAddressLabel(mapInstance, dropoff, 'Delivery', dropoff.name || 'Delivery Address');
 
-    if (points.length < 2) {
-        if (points.length === 1) {
-            drawStraightRoute(map, points);
-            placeTruckMarker(map, points[0], points[0].name);
-        }
-        return;
+    if (current) {
+        truckMarker = placeTruckMarker(mapInstance, current, current.name);
+        addEndpointAddressLabel(
+            mapInstance,
+            current,
+            'Current Location',
+            current.name,
+            'current'
+        );
+    }
+}
+
+function drawStraightMultiPoint(mapInstance, points) {
+    if (directionsRenderer) {
+        directionsRenderer.setMap(null);
+    }
+    if (routePolyline) {
+        routePolyline.setMap(null);
     }
 
-    directionsService = new google.maps.DirectionsService();
-    directionsRenderer = new google.maps.DirectionsRenderer({
-        map,
-        suppressMarkers: true,
-        polylineOptions: {
-            strokeColor: '#4D148C',
-            strokeWeight: 5,
-            strokeOpacity: 0.8
-        }
+    const path = points.map((p) => ({ lat: p.lat, lng: p.lng }));
+    routePolyline = new google.maps.Polyline({
+        path: path,
+        geodesic: true,
+        strokeColor: '#4D148C',
+        strokeOpacity: 0.9,
+        strokeWeight: 5
     });
+    routePolyline.setMap(mapInstance);
 
-    const origin = points[0];
-    const destination = points[points.length - 1];
-    const waypoints = points.slice(1, -1).map((p) => ({
-        location: { lat: p.lat, lng: p.lng },
-        stopover: true
-    }));
-
-    directionsService.route({
-        origin: { lat: origin.lat, lng: origin.lng },
-        destination: { lat: destination.lat, lng: destination.lng },
-        waypoints,
-        travelMode: google.maps.TravelMode.DRIVING
-    }, (result, status) => {
-        if (status === 'OK') {
-            directionsRenderer.setDirections(result);
-
-            new google.maps.Marker({
-                position: { lat: origin.lat, lng: origin.lng },
-                map,
-                icon: {
-                    path: google.maps.SymbolPath.CIRCLE,
-                    scale: 8,
-                    fillColor: '#4D148C',
-                    fillOpacity: 1,
-                    strokeColor: '#fff',
-                    strokeWeight: 2
-                },
-                title: origin.name || 'Origin'
-            });
-
-            new google.maps.Marker({
-                position: { lat: destination.lat, lng: destination.lng },
-                map,
-                icon: {
-                    path: google.maps.SymbolPath.CIRCLE,
-                    scale: 8,
-                    fillColor: '#FF6200',
-                    fillOpacity: 1,
-                    strokeColor: '#fff',
-                    strokeWeight: 2
-                },
-                title: destination.name || 'Destination'
-            });
-
-            const path = result.routes[0].overview_path;
-            placeTruckMarker(map, currentPosition, currentPosition?.name || 'Current Location');
-            animateTruck(path);
-
-            const bounds = new google.maps.LatLngBounds();
-            path.forEach((point) => bounds.extend(point));
-            map.fitBounds(bounds);
-        } else {
-            drawStraightRoute(map, points, {
-                originTitle: origin.name,
-                destinationTitle: destination.name
-            });
-            placeTruckMarker(map, currentPosition, currentPosition?.name || 'Current Location');
-        }
-    });
+    const bounds = new google.maps.LatLngBounds();
+    path.forEach((p) => bounds.extend(p));
+    mapInstance.fitBounds(bounds);
 }
 
-/**
- * Initialize map with Google Maps API
- */
+function animateTruckToCurrent(path, current) {
+    if (!path || path.length === 0 || !truckMarker || !current) return;
+
+    let closestIndex = 0;
+    let closestDist = Infinity;
+    path.forEach((point, index) => {
+        const lat = typeof point.lat === 'function' ? point.lat() : point.lat;
+        const lng = typeof point.lng === 'function' ? point.lng() : point.lng;
+        const d = Math.pow(lat - current.lat, 2) + Math.pow(lng - current.lng, 2);
+        if (d < closestDist) {
+            closestDist = d;
+            closestIndex = index;
+        }
+    });
+
+    const targetIndex = Math.max(1, closestIndex);
+    let step = 0;
+    const animationSpeed = 40;
+
+    function moveTruck() {
+        if (step < targetIndex) {
+            truckMarker.setPosition(path[step]);
+            step++;
+            setTimeout(moveTruck, animationSpeed);
+        } else {
+            truckMarker.setPosition({ lat: current.lat, lng: current.lng });
+        }
+    }
+
+    moveTruck();
+}
+
 async function initMap() {
     try {
         const response = await fetch('/api/settings.php?key=google_maps_api_key');
@@ -280,7 +356,8 @@ async function initMap() {
         const apiKey = data.value;
 
         if (!apiKey) {
-            document.getElementById('map-container').innerHTML = '<div class="p-8 text-center text-gray-500">Google Maps API key not configured. Please add it in <a href="/admin/settings.php" class="text-primary hover:underline">Admin Settings</a>.</div>';
+            document.getElementById('map-container').innerHTML =
+                '<div class="p-8 text-center text-gray-500">Google Maps API key not configured. Please add it in <a href="/admin/settings.php" class="text-primary hover:underline">Admin Settings</a>.</div>';
             return;
         }
 
@@ -296,26 +373,44 @@ async function initMap() {
         }
     } catch (error) {
         console.error('Error loading map:', error);
-        document.getElementById('map-container').innerHTML = '<div class="p-8 text-center text-red-500">Error loading map. Please check your API key.</div>';
+        document.getElementById('map-container').innerHTML =
+            '<div class="p-8 text-center text-red-500">Error loading map. Please check your API key.</div>';
     }
 }
 
-/**
- * Setup map with route from pickup, tracking events, and dropoff
- */
 function setupMap() {
     const urlParams = new URLSearchParams(window.location.search);
     const trackingId = urlParams.get('id');
-
-    if (!trackingId) {
-        return;
-    }
+    if (!trackingId) return;
 
     fetch(`/api/tracking.php?id=${encodeURIComponent(trackingId)}`)
         .then((response) => response.json())
-        .then((data) => {
-            if (!data.success) return;
-            renderShipmentMap(data.shipment || {}, data.events || []);
+        .then(async (data) => {
+            const labels = getRouteEndpointLabels();
+            const events = (data.success && Array.isArray(data.events) ? data.events : [])
+                .map((e) => ({
+                    ...e,
+                    latitude: toNumber(e.latitude),
+                    longitude: toNumber(e.longitude)
+                }));
+            const eventsWithCoords = events.filter(
+                (e) => e.latitude !== null && e.longitude !== null && !(e.latitude === 0 && e.longitude === 0)
+            );
+            const current = getCurrentLocationFromEvents(eventsWithCoords);
+
+            const fallback = await resolveFallbackEndpoints();
+
+            if (fallback) {
+                renderShipmentRoute(fallback, labels, current);
+                return;
+            }
+
+            if (eventsWithCoords.length >= 2) {
+                renderEventOnlyRoute(eventsWithCoords, labels, current);
+                return;
+            }
+
+            showSimpleMap(eventsWithCoords, current);
         })
         .catch((error) => {
             console.error('Error fetching tracking data:', error);
@@ -323,27 +418,184 @@ function setupMap() {
 }
 
 /**
- * Animate truck along route
+ * Main route: Pickup → (Current Location waypoint) → Delivery.
+ * On overseas / ZERO_RESULTS, falls back to a labeled straight line.
  */
-function animateTruck(path) {
-    if (!path || path.length === 0 || !truckMarker) return;
+function renderShipmentRoute(fallback, labels, current) {
+    const pickup = {
+        lat: fallback.pickup.lat,
+        lng: fallback.pickup.lng,
+        name: fallback.pickup.name || labels.pickup
+    };
+    const dropoff = {
+        lat: fallback.dropoff.lat,
+        lng: fallback.dropoff.lng,
+        name: fallback.dropoff.name || labels.dropoff
+    };
 
-    let step = 0;
-    const totalSteps = path.length;
-    const animationSpeed = 50;
+    map = new google.maps.Map(document.getElementById('map-container'), {
+        zoom: 6,
+        center: current
+            ? { lat: current.lat, lng: current.lng }
+            : { lat: pickup.lat, lng: pickup.lng },
+        mapTypeId: 'roadmap'
+    });
 
-    function moveTruck() {
-        if (step < totalSteps) {
-            truckMarker.setPosition(path[step]);
-            step++;
-            setTimeout(moveTruck, animationSpeed);
-        } else {
-            step = 0;
-            setTimeout(moveTruck, 1000);
+    directionsService = new google.maps.DirectionsService();
+    directionsRenderer = new google.maps.DirectionsRenderer({
+        map: map,
+        suppressMarkers: true,
+        polylineOptions: {
+            strokeColor: '#4D148C',
+            strokeWeight: 5,
+            strokeOpacity: 0.8
         }
+    });
+
+    const request = {
+        origin: { lat: pickup.lat, lng: pickup.lng },
+        destination: { lat: dropoff.lat, lng: dropoff.lng },
+        travelMode: google.maps.TravelMode.DRIVING
+    };
+
+    if (current) {
+        request.waypoints = [
+            {
+                location: { lat: current.lat, lng: current.lng },
+                stopover: true
+            }
+        ];
+        request.optimizeWaypoints = false;
     }
 
-    moveTruck();
+    directionsService.route(request, (result, status) => {
+        placeRouteLabels(map, pickup, dropoff, current);
+
+        if (status === 'OK') {
+            directionsRenderer.setDirections(result);
+            const path = result.routes[0].overview_path;
+
+            const bounds = new google.maps.LatLngBounds();
+            path.forEach((point) => bounds.extend(point));
+            if (current) bounds.extend({ lat: current.lat, lng: current.lng });
+            map.fitBounds(bounds);
+
+            if (current && truckMarker) {
+                animateTruckToCurrent(path, current);
+            }
+        } else {
+            // Always show a route line between cities/countries when driving directions fail
+            const points = current ? [pickup, current, dropoff] : [pickup, dropoff];
+            drawStraightMultiPoint(map, points);
+        }
+    });
+}
+
+function renderEventOnlyRoute(events, labels, current) {
+    map = new google.maps.Map(document.getElementById('map-container'), {
+        zoom: 6,
+        center: { lat: events[0].latitude, lng: events[0].longitude },
+        mapTypeId: 'roadmap'
+    });
+
+    // events from API are typically newest-first
+    const origin = {
+        lat: events[events.length - 1].latitude,
+        lng: events[events.length - 1].longitude,
+        name: labels.pickup
+    };
+    const destination = {
+        lat: events[0].latitude,
+        lng: events[0].longitude,
+        name: labels.dropoff
+    };
+
+    directionsService = new google.maps.DirectionsService();
+    directionsRenderer = new google.maps.DirectionsRenderer({
+        map: map,
+        suppressMarkers: true,
+        polylineOptions: {
+            strokeColor: '#4D148C',
+            strokeWeight: 5,
+            strokeOpacity: 0.8
+        }
+    });
+
+    const waypoints = events.slice(1, -1).map((e) => ({
+        location: { lat: e.latitude, lng: e.longitude },
+        stopover: true
+    }));
+
+    directionsService.route(
+        {
+            origin: { lat: origin.lat, lng: origin.lng },
+            destination: { lat: destination.lat, lng: destination.lng },
+            waypoints: waypoints,
+            travelMode: google.maps.TravelMode.DRIVING
+        },
+        (result, status) => {
+            placeRouteLabels(map, origin, destination, current);
+            if (status === 'OK') {
+                directionsRenderer.setDirections(result);
+                const path = result.routes[0].overview_path;
+                const bounds = new google.maps.LatLngBounds();
+                path.forEach((point) => bounds.extend(point));
+                map.fitBounds(bounds);
+                if (current && truckMarker) {
+                    animateTruckToCurrent(path, current);
+                }
+            } else {
+                drawStraightMultiPoint(
+                    map,
+                    current ? [origin, current, destination] : [origin, destination]
+                );
+            }
+        }
+    );
+}
+
+function showSimpleMap(events, current) {
+    const fallback = getFallbackEndpoints();
+    const labels = getRouteEndpointLabels();
+    const center = current
+        ? { lat: current.lat, lng: current.lng }
+        : events.length > 0
+          ? { lat: events[0].latitude, lng: events[0].longitude }
+          : fallback
+            ? { lat: fallback.pickup.lat, lng: fallback.pickup.lng }
+            : { lat: 39.8283, lng: -98.5795 };
+
+    map = new google.maps.Map(document.getElementById('map-container'), {
+        zoom: 6,
+        center: center,
+        mapTypeId: 'roadmap'
+    });
+
+    if (fallback) {
+        const pickup = {
+            lat: fallback.pickup.lat,
+            lng: fallback.pickup.lng,
+            name: labels.pickup
+        };
+        const dropoff = {
+            lat: fallback.dropoff.lat,
+            lng: fallback.dropoff.lng,
+            name: labels.dropoff
+        };
+        placeRouteLabels(map, pickup, dropoff, current);
+        drawStraightMultiPoint(
+            map,
+            current ? [pickup, current, dropoff] : [pickup, dropoff]
+        );
+        return;
+    }
+
+    if (current) {
+        truckMarker = placeTruckMarker(map, current, current.name);
+        addEndpointAddressLabel(map, current, 'Current Location', current.name, 'current');
+        map.setCenter({ lat: current.lat, lng: current.lng });
+        map.setZoom(10);
+    }
 }
 
 if (document.readyState === 'loading') {

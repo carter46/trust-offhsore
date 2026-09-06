@@ -501,6 +501,104 @@ function hasUsableMapCoords($lat, $lng) {
 }
 
 /**
+ * Human-readable map endpoint label (city/address shown on the tracking map).
+ */
+function getShipmentMapEndpointLabel($shipment, $endpoint = 'pickup') {
+    if ($endpoint === 'dropoff') {
+        if (!empty($shipment['dropoff_location'])) {
+            return trim((string) $shipment['dropoff_location']);
+        }
+        $parts = array_filter([
+            $shipment['recipient_address'] ?? '',
+            trim(($shipment['recipient_city'] ?? '')
+                . (!empty($shipment['recipient_state']) ? ', ' . $shipment['recipient_state'] : '')
+                . (!empty($shipment['recipient_zip']) ? ' ' . $shipment['recipient_zip'] : '')),
+            $shipment['recipient_country'] ?? '',
+        ], function ($part) {
+            return trim((string) $part) !== '';
+        });
+        $label = trim(implode(', ', $parts));
+        return $label !== '' ? $label : 'Delivery Address';
+    }
+
+    if (!empty($shipment['pickup_location'])) {
+        return trim((string) $shipment['pickup_location']);
+    }
+    $parts = array_filter([
+        $shipment['sender_address'] ?? '',
+        trim(($shipment['sender_city'] ?? '')
+            . (!empty($shipment['sender_state']) ? ', ' . $shipment['sender_state'] : '')
+            . (!empty($shipment['sender_zip']) ? ' ' . $shipment['sender_zip'] : '')),
+        $shipment['sender_country'] ?? '',
+    ], function ($part) {
+        return trim((string) $part) !== '';
+    });
+    $label = trim(implode(', ', $parts));
+    return $label !== '' ? $label : 'Pickup Address';
+}
+
+/**
+ * Prefer pickup/dropoff coords; fall back to sender/recipient so city-only shipments still plot.
+ */
+function getShipmentMapEndpointCoords($shipment, $endpoint = 'pickup') {
+    if ($endpoint === 'dropoff') {
+        $lat = $shipment['dropoff_latitude'] ?? null;
+        $lng = $shipment['dropoff_longitude'] ?? null;
+        if (!hasUsableMapCoords($lat, $lng)) {
+            $lat = $shipment['recipient_latitude'] ?? null;
+            $lng = $shipment['recipient_longitude'] ?? null;
+        }
+        if (!hasUsableMapCoords($lat, $lng)) {
+            return ['lat' => null, 'lng' => null];
+        }
+        return ['lat' => (float) $lat, 'lng' => (float) $lng];
+    }
+
+    $lat = $shipment['pickup_latitude'] ?? null;
+    $lng = $shipment['pickup_longitude'] ?? null;
+    if (!hasUsableMapCoords($lat, $lng)) {
+        $lat = $shipment['sender_latitude'] ?? null;
+        $lng = $shipment['sender_longitude'] ?? null;
+    }
+    if (!hasUsableMapCoords($lat, $lng)) {
+        return ['lat' => null, 'lng' => null];
+    }
+    return ['lat' => (float) $lat, 'lng' => (float) $lng];
+}
+
+/**
+ * Compact city/country label for map pins when a full address is too long.
+ */
+function getShipmentMapEndpointShortLabel($shipment, $endpoint = 'pickup') {
+    if ($endpoint === 'dropoff') {
+        $city = trim((string) ($shipment['recipient_city'] ?? ''));
+        $country = trim((string) ($shipment['recipient_country'] ?? ''));
+        if ($city !== '' && $country !== '') {
+            return $city . ', ' . $country;
+        }
+        if ($city !== '') {
+            return $city;
+        }
+        if ($country !== '') {
+            return $country;
+        }
+    } else {
+        $city = trim((string) ($shipment['sender_city'] ?? ''));
+        $country = trim((string) ($shipment['sender_country'] ?? ''));
+        if ($city !== '' && $country !== '') {
+            return $city . ', ' . $country;
+        }
+        if ($city !== '') {
+            return $city;
+        }
+        if ($country !== '') {
+            return $country;
+        }
+    }
+    return getShipmentMapEndpointLabel($shipment, $endpoint);
+}
+
+/**
  * Latest public tracking event (location) keyed by shipment id.
  * Prefers the newest event_date, then highest id for ties.
  */

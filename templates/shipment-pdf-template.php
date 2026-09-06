@@ -59,6 +59,14 @@ $weight = !empty($shipment['weight'])
 $trackingClean = preg_replace('/\s+/', '', (string) $shipment['tracking_number']);
 $autoprint = !empty($autoprint) || (isset($_GET['autoprint']) && $_GET['autoprint'] == '1');
 
+$siteUrl = rtrim((string) getSetting('site_url', ''), '/');
+if ($siteUrl === '') {
+    $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+    $siteUrl = ($https ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost');
+}
+$trackingUrl = $siteUrl . trackingResultUrl($shipment['tracking_number']);
+$qrCodeUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=8&data=' . rawurlencode($trackingUrl);
+
 $statusLower = strtolower((string) ($shipment['status'] ?? ''));
 $statusTone = '#166534';
 $statusBg = '#dcfce7';
@@ -157,6 +165,7 @@ if (!function_exists('receipt_h')) {
             background: var(--paper);
             border: 1px solid #dbe3ee;
             box-shadow: 0 18px 50px rgba(15, 23, 42, 0.12);
+            overflow: hidden;
         }
         .brand-bar {
             display: flex;
@@ -172,22 +181,28 @@ if (!function_exists('receipt_h')) {
             align-items: center;
             gap: 14px;
             min-width: 0;
+            flex: 1;
         }
         .brand-logo {
             max-height: 64px;
-            max-width: 180px;
+            max-width: 160px;
             width: auto;
             height: auto;
             object-fit: contain;
             display: block;
+            flex-shrink: 0;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
+        }
+        .brand-text {
+            min-width: 0;
         }
         .brand-text h1 {
             margin: 0;
             font-size: 22px;
             letter-spacing: -0.02em;
             color: var(--brand);
+            word-break: break-word;
         }
         .brand-text p {
             margin: 2px 0 0;
@@ -199,6 +214,7 @@ if (!function_exists('receipt_h')) {
         }
         .doc-meta {
             text-align: right;
+            flex-shrink: 0;
         }
         .doc-meta .label {
             font-size: 11px;
@@ -241,7 +257,7 @@ if (!function_exists('receipt_h')) {
             color: var(--muted);
         }
         .tracking-number {
-            font-size: 26px;
+            font-size: 22px;
             font-weight: 800;
             letter-spacing: 0.04em;
             color: var(--brand);
@@ -263,30 +279,45 @@ if (!function_exists('receipt_h')) {
         }
         .kv {
             display: grid;
-            grid-template-columns: 120px 1fr;
+            grid-template-columns: 110px 1fr;
             gap: 6px 10px;
             font-size: 13px;
         }
         .kv .k { color: var(--muted); font-weight: 600; }
-        .kv .v { font-weight: 700; color: var(--ink); }
-        .barcode-block {
+        .kv .v { font-weight: 700; color: var(--ink); word-break: break-word; }
+        .qr-block {
             text-align: center;
-            margin-top: 12px;
-            padding-top: 12px;
+            margin-top: 14px;
+            padding-top: 14px;
             border-top: 1px dashed #cbd5e1;
         }
-        .barcode-font {
-            font-family: "Libre Barcode 39", "Courier New", monospace;
-            font-size: 42px;
-            line-height: 1;
-            letter-spacing: 2px;
+        .qr-block img {
+            width: 140px;
+            height: 140px;
+            max-width: 100%;
+            display: block;
+            margin: 0 auto;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #fff;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
         }
-        .barcode-caption {
+        .qr-caption {
+            margin-top: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+        .qr-tracking {
             margin-top: 4px;
             font-size: 11px;
             font-family: ui-monospace, monospace;
-            letter-spacing: 0.12em;
-            color: var(--muted);
+            letter-spacing: 0.08em;
+            color: var(--ink);
+            word-break: break-all;
         }
         .section {
             margin: 0 0 22px;
@@ -468,15 +499,56 @@ if (!function_exists('receipt_h')) {
         .footer strong { color: var(--ink); }
         .muted { color: var(--muted); }
         @media (max-width: 720px) {
-            .brand-bar, .hero, .two-col, .route, .costs { grid-template-columns: 1fr; }
-            .hero { display: grid; }
-            .route { grid-template-columns: 1fr; }
-            .route-arrow { transform: rotate(90deg); }
-            .doc-meta { text-align: left; }
-            .body, .brand-bar, .footer { padding-left: 18px; padding-right: 18px; }
+            .sheet-wrap { padding: 12px 8px 32px; }
+            .sheet { border-radius: 0; box-shadow: none; }
+            .brand-bar {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 14px;
+                padding: 18px 16px;
+            }
+            .brand-left {
+                flex-direction: column;
+                align-items: flex-start;
+                width: 100%;
+                gap: 10px;
+            }
+            .brand-logo {
+                max-height: 52px;
+                max-width: min(140px, 70vw);
+            }
+            .brand-text { width: 100%; }
+            .brand-text h1 { font-size: 18px; }
+            .brand-text p { white-space: normal; }
+            .doc-meta {
+                text-align: left;
+                width: 100%;
+                padding-top: 8px;
+                border-top: 1px solid var(--line);
+            }
+            .doc-meta .title { font-size: 16px; }
+            .body, .footer { padding-left: 16px; padding-right: 16px; }
+            .body { padding-top: 18px; }
+            .hero, .two-col, .route, .costs { display: grid; grid-template-columns: 1fr; gap: 12px; }
+            .panel { padding: 14px; }
+            .route-arrow { transform: rotate(90deg); padding: 4px 0; }
+            .tracking-number { font-size: 18px; }
+            .kv { grid-template-columns: 88px 1fr; font-size: 12px; gap: 4px 8px; }
+            .party .name { word-break: break-word; }
+            table.details, .timeline table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            table.details th { width: auto; }
+            .timeline { overflow-x: auto; }
+            .timeline th, .timeline td { white-space: nowrap; }
+            .timeline td:nth-child(3) { white-space: normal; min-width: 140px; }
+            .cost-box .amt { font-size: 16px; }
+            .footer { flex-direction: column; text-align: left; }
+            .footer > div[style*="text-align:right"] { text-align: left !important; }
+            .qr-block { margin-top: 12px; padding-top: 12px; }
+            .qr-block img { width: 120px; height: 120px; }
+            .item-photo { max-width: 100%; height: auto; }
         }
         @media print {
-            @page { margin: 12mm; }
+            @page { margin: 10mm; }
             body { background: #fff; }
             .toolbar { display: none !important; }
             .sheet-wrap { padding: 0; }
@@ -486,13 +558,12 @@ if (!function_exists('receipt_h')) {
                 box-shadow: none;
             }
             a { color: inherit; text-decoration: none; }
-            .brand-logo, .item-photo, .status-pill, .cost-box.total, .timeline th {
+            .brand-logo, .item-photo, .status-pill, .cost-box.total, .timeline th, .qr-block img {
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
             }
         }
     </style>
-    <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39&display=swap" rel="stylesheet"/>
 </head>
 <body>
     <div class="toolbar no-print">
@@ -523,9 +594,10 @@ if (!function_exists('receipt_h')) {
                         <h2>Tracking number</h2>
                         <div class="tracking-number"><?php echo receipt_h($shipment['tracking_number']); ?></div>
                         <span class="status-pill"><?php echo receipt_h($shipment['status']); ?></span>
-                        <div class="barcode-block">
-                            <div class="barcode-font">*<?php echo receipt_h($trackingClean); ?>*</div>
-                            <div class="barcode-caption"><?php echo receipt_h($shipment['tracking_number']); ?></div>
+                        <div class="qr-block">
+                            <img src="<?php echo receipt_h($qrCodeUrl); ?>" width="140" height="140" alt="QR code to track shipment"/>
+                            <div class="qr-caption">Scan to track</div>
+                            <div class="qr-tracking"><?php echo receipt_h($shipment['tracking_number']); ?></div>
                         </div>
                     </div>
                     <div class="panel">

@@ -215,8 +215,10 @@ include __DIR__ . '/includes/admin-header.php';
             
             <div>
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="sender_address">Address *</label>
-                <input type="text" id="sender_address" name="sender_address" required
-                       class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                <input type="text" id="sender_address" name="sender_address" required autocomplete="off"
+                       class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
+                       placeholder="Start typing and select from Google suggestions">
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Select a suggestion so the route map can plot the pickup point.</p>
                 <input type="hidden" id="sender_latitude" name="sender_latitude">
                 <input type="hidden" id="sender_longitude" name="sender_longitude">
             </div>
@@ -266,8 +268,10 @@ include __DIR__ . '/includes/admin-header.php';
             
             <div>
                 <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="recipient_address">Address *</label>
-                <input type="text" id="recipient_address" name="recipient_address" required
-                       class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
+                <input type="text" id="recipient_address" name="recipient_address" required autocomplete="off"
+                       class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
+                       placeholder="Start typing and select from Google suggestions">
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Select a suggestion so the route map can plot the drop-off point.</p>
                 <input type="hidden" id="recipient_latitude" name="recipient_latitude">
                 <input type="hidden" id="recipient_longitude" name="recipient_longitude">
             </div>
@@ -304,72 +308,20 @@ include __DIR__ . '/includes/admin-header.php';
                        placeholder="+1 (555) 123-4567">
             </div>
             
-            <!-- Pickup Location -->
-            <div class="md:col-span-2 mt-6">
-                <h2 class="text-xl font-bold text-gray-800 dark:text-white mb-4">Pickup Location (Optional)</h2>
-            </div>
-            
-            <div class="md:col-span-2">
-                <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="pickup_location">Pickup Location</label>
-                <input type="text" id="pickup_location" name="pickup_location"
-                       class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
-                       placeholder="Auto-filled from sender address">
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Filled from the sender address when you pick it from suggestions. You can still change it.</p>
-                <div class="mt-2 grid grid-cols-2 gap-2">
-                    <div>
-                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1" for="pickup_latitude_display">Latitude (Optional)</label>
-                        <input type="number" step="any" id="pickup_latitude_display" 
-                               class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white"
-                               placeholder="e.g., 34.0522">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1" for="pickup_longitude_display">Longitude (Optional)</label>
-                        <input type="number" step="any" id="pickup_longitude_display"
-                               class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white"
-                               placeholder="e.g., -118.2437">
-                    </div>
-                </div>
-                <input type="hidden" id="pickup_latitude" name="pickup_latitude">
-                <input type="hidden" id="pickup_longitude" name="pickup_longitude">
-                <div id="pickup_map_preview" class="w-full h-64 bg-gray-200 dark:bg-gray-800 mt-4 rounded" style="display: none;"></div>
-            </div>
-            
-            <!-- Dropoff Location -->
-            <div class="md:col-span-2 mt-6">
-                <h2 class="text-xl font-bold text-gray-800 dark:text-white mb-4">Dropoff Location (Optional)</h2>
-            </div>
-            
-            <div class="md:col-span-2">
-                <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="dropoff_location">Dropoff Location</label>
-                <input type="text" id="dropoff_location" name="dropoff_location"
-                       class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
-                       placeholder="Auto-filled from recipient address">
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Filled from the recipient address when you pick it from suggestions. You can still change it.</p>
-                <div class="mt-2 grid grid-cols-2 gap-2">
-                    <div>
-                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1" for="dropoff_latitude_display">Latitude (Optional)</label>
-                        <input type="number" step="any" id="dropoff_latitude_display"
-                               class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white"
-                               placeholder="e.g., 34.0522">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1" for="dropoff_longitude_display">Longitude (Optional)</label>
-                        <input type="number" step="any" id="dropoff_longitude_display"
-                               class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white"
-                               placeholder="e.g., -118.2437">
-                    </div>
-                </div>
-                <input type="hidden" id="dropoff_latitude" name="dropoff_latitude">
-                <input type="hidden" id="dropoff_longitude" name="dropoff_longitude">
-                <div id="dropoff_map_preview" class="w-full h-64 bg-gray-200 dark:bg-gray-800 mt-4 rounded" style="display: none;"></div>
-            </div>
-            
+            <!-- Hidden map endpoints (auto-filled from sender / recipient addresses) -->
+            <input type="hidden" id="pickup_location" name="pickup_location" value="">
+            <input type="hidden" id="pickup_latitude" name="pickup_latitude" value="">
+            <input type="hidden" id="pickup_longitude" name="pickup_longitude" value="">
+            <input type="hidden" id="dropoff_location" name="dropoff_location" value="">
+            <input type="hidden" id="dropoff_latitude" name="dropoff_latitude" value="">
+            <input type="hidden" id="dropoff_longitude" name="dropoff_longitude" value="">
+
             <!-- Route Map Preview -->
             <div class="md:col-span-2 mt-6">
                 <h2 class="text-xl font-bold text-gray-800 dark:text-white mb-4">Route Preview</h2>
-                <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Map showing the route from sender (pickup) to recipient (dropoff)</p>
-                <div id="route_map_preview" class="w-full h-96 bg-gray-200 dark:bg-gray-800 rounded" style="display: none;"></div>
-                <p id="route_map_message" class="text-sm text-gray-500 dark:text-gray-400 mt-2">Select sender and recipient addresses to see the route</p>
+                <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Automatically plotted from the sender and recipient addresses</p>
+                <div id="route_map_preview" class="w-full h-96 bg-gray-200 dark:bg-gray-800 rounded border border-gray-300 dark:border-gray-600"></div>
+                <p id="route_map_message" class="text-sm text-gray-500 dark:text-gray-400 mt-2">Select sender and recipient addresses from the suggestions to see the route.</p>
             </div>
             
             <!-- Shipment Details -->
@@ -510,495 +462,341 @@ include __DIR__ . '/includes/admin-header.php';
 </div>
 
 <script>
-// Load Google Maps API and initialize autocomplete
 (function() {
-    // Get API key from settings
+    let mapsReady = false;
+    let geocoder = null;
+
     fetch('/api/settings.php?key=google_maps_api_key')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success && data.value) {
-                const apiKey = data.value;
-                
-                // Load Google Maps script
-                const script = document.createElement('script');
-                script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,geometry`;
-                script.async = true;
-                script.defer = true;
-                script.onload = function() {
-                    initializeAutocomplete();
-                };
-                script.onerror = function() {
-                    console.error('Failed to load Google Maps API');
-                };
-                document.head.appendChild(script);
-            } else {
-                console.warn('Google Maps API key not configured');
+        .then(function (response) { return response.json(); })
+        .then(function (data) {
+            if (!(data.success && data.value)) {
+                const msg = document.getElementById('route_map_message');
+                if (msg) msg.textContent = 'Google Maps API key is not configured in Settings. Route preview is unavailable.';
+                return;
             }
+            const script = document.createElement('script');
+            script.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(data.value) + '&libraries=places,geometry';
+            script.async = true;
+            script.defer = true;
+            script.onload = function () {
+                mapsReady = true;
+                geocoder = new google.maps.Geocoder();
+                initializeAddressSync();
+            };
+            script.onerror = function () {
+                const msg = document.getElementById('route_map_message');
+                if (msg) msg.textContent = 'Failed to load Google Maps. Check the API key and billing.';
+            };
+            document.head.appendChild(script);
         })
-        .catch(error => {
-            console.error('Error loading Google Maps API key:', error);
+        .catch(function () {
+            const msg = document.getElementById('route_map_message');
+            if (msg) msg.textContent = 'Could not load map settings.';
         });
-    
-    function initializeAutocomplete() {
-        // Sync sender/recipient address into pickup/dropoff (map route endpoints)
-        function syncMapEndpointFromPlace(endpoint, place) {
-            if (!place || !place.geometry) return;
+
+    function setEndpoint(endpoint, lat, lng, label) {
+        const loc = document.getElementById(endpoint + '_location');
+        const latEl = document.getElementById(endpoint + '_latitude');
+        const lngEl = document.getElementById(endpoint + '_longitude');
+        if (loc) loc.value = label || '';
+        if (latEl) latEl.value = lat;
+        if (lngEl) lngEl.value = lng;
+        updateRouteMap();
+    }
+
+    function syncFromPlace(endpoint, place, personPrefix) {
+        if (!place || !place.geometry || !place.geometry.location) return;
+        const lat = place.geometry.location.lat();
+        const lng = place.geometry.location.lng();
+        const label = place.formatted_address || place.name || (endpoint === 'pickup' ? 'Pickup' : 'Drop-off');
+
+        const personLat = document.getElementById(personPrefix + '_latitude');
+        const personLng = document.getElementById(personPrefix + '_longitude');
+        if (personLat) personLat.value = lat;
+        if (personLng) personLng.value = lng;
+
+        fillAddressFields(place, personPrefix);
+        setEndpoint(endpoint, lat, lng, label);
+    }
+
+    function buildAddressQuery(prefix) {
+        const parts = [
+            document.getElementById(prefix + '_address')?.value,
+            document.getElementById(prefix + '_city')?.value,
+            document.getElementById(prefix + '_state')?.value,
+            document.getElementById(prefix + '_zip')?.value,
+            document.getElementById(prefix + '_country')?.value
+        ].map(function (v) { return (v || '').trim(); }).filter(Boolean);
+        return parts.join(', ');
+    }
+
+    function geocodePersonAddress(prefix, endpoint) {
+        if (!mapsReady || !geocoder) return;
+        const query = buildAddressQuery(prefix);
+        if (query.length < 2) return;
+
+        geocoder.geocode({ address: query }, function (results, status) {
+            if (status !== 'OK' || !results || !results[0] || !results[0].geometry) {
+                return;
+            }
+            const place = results[0];
             const lat = place.geometry.location.lat();
             const lng = place.geometry.location.lng();
-            const addressLabel = place.formatted_address || place.name || (endpoint === 'pickup' ? 'Pickup Address' : 'Delivery Address');
+            const label = place.formatted_address || query;
 
-            document.getElementById(endpoint + '_latitude').value = lat;
-            document.getElementById(endpoint + '_longitude').value = lng;
-            const latDisplay = document.getElementById(endpoint + '_latitude_display');
-            const lngDisplay = document.getElementById(endpoint + '_longitude_display');
-            if (latDisplay) latDisplay.value = lat;
-            if (lngDisplay) lngDisplay.value = lng;
+            const personLat = document.getElementById(prefix + '_latitude');
+            const personLng = document.getElementById(prefix + '_longitude');
+            if (personLat) personLat.value = lat;
+            if (personLng) personLng.value = lng;
 
-            const locationInput = document.getElementById(endpoint + '_location');
-            if (locationInput) locationInput.value = addressLabel;
-
-            displayMapPreview(endpoint, lat, lng, addressLabel, window[endpoint + 'MapInstance'] || null);
-            setTimeout(updateRouteMap, 100);
-        }
-
-        // Initialize sender address autocomplete — also drives pickup / route origin
-        const senderInput = document.getElementById('sender_address');
-        if (senderInput && typeof google !== 'undefined' && google.maps) {
-            const senderAutocomplete = new google.maps.places.Autocomplete(senderInput, {
-                types: ['address'],
-                fields: ['formatted_address', 'address_components', 'geometry', 'name']
-            });
-            
-            senderAutocomplete.addListener('place_changed', function() {
-                const place = senderAutocomplete.getPlace();
-                if (place.geometry) {
-                    const lat = place.geometry.location.lat();
-                    const lng = place.geometry.location.lng();
-                    document.getElementById('sender_latitude').value = lat;
-                    document.getElementById('sender_longitude').value = lng;
-                    if (place.formatted_address) {
-                        senderInput.value = place.formatted_address;
-                    }
-                    fillAddressFields(place, 'sender');
-                    syncMapEndpointFromPlace('pickup', place);
-                }
-            });
-        }
-        
-        // Initialize recipient address autocomplete — also drives dropoff / route destination
-        const recipientInput = document.getElementById('recipient_address');
-        if (recipientInput && typeof google !== 'undefined' && google.maps) {
-            const recipientAutocomplete = new google.maps.places.Autocomplete(recipientInput, {
-                types: ['address'],
-                fields: ['formatted_address', 'address_components', 'geometry', 'name']
-            });
-            
-            recipientAutocomplete.addListener('place_changed', function() {
-                const place = recipientAutocomplete.getPlace();
-                if (place.geometry) {
-                    const lat = place.geometry.location.lat();
-                    const lng = place.geometry.location.lng();
-                    document.getElementById('recipient_latitude').value = lat;
-                    document.getElementById('recipient_longitude').value = lng;
-                    if (place.formatted_address) {
-                        recipientInput.value = place.formatted_address;
-                    }
-                    fillAddressFields(place, 'recipient');
-                    syncMapEndpointFromPlace('dropoff', place);
-                }
-            });
-        }
-        
-        // Initialize pickup location autocomplete with map preview
-        const pickupInput = document.getElementById('pickup_location');
-        if (pickupInput && typeof google !== 'undefined' && google.maps) {
-            const pickupAutocomplete = new google.maps.places.Autocomplete(pickupInput, {
-                types: ['establishment', 'geocode'],
-                fields: ['formatted_address', 'name', 'geometry']
-            });
-            
-            let pickupMap = null;
-            pickupAutocomplete.addListener('place_changed', function() {
-                const place = pickupAutocomplete.getPlace();
-                if (place.geometry) {
-                    const lat = place.geometry.location.lat();
-                    const lng = place.geometry.location.lng();
-                    // Update both hidden and visible fields
-                    document.getElementById('pickup_latitude').value = lat;
-                    document.getElementById('pickup_longitude').value = lng;
-                    document.getElementById('pickup_latitude_display').value = lat;
-                    document.getElementById('pickup_longitude_display').value = lng;
-                    
-                    // Show and display map preview
-                    displayMapPreview('pickup', lat, lng, place.name || place.formatted_address || 'Pickup Location', pickupMap);
-                    pickupMap = window.pickupMapInstance;
-                    
-                    // Update route map
-                    setTimeout(updateRouteMap, 100);
-                }
-            });
-            
-            // Reverse geocoding when lat/long are manually entered
-            const pickupLatDisplay = document.getElementById('pickup_latitude_display');
-            const pickupLngDisplay = document.getElementById('pickup_longitude_display');
-            
-            function updatePickupFromCoordinates() {
-                const lat = parseFloat(pickupLatDisplay.value);
-                const lng = parseFloat(pickupLngDisplay.value);
-                
-                if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-                    // Update hidden fields
-                    document.getElementById('pickup_latitude').value = lat;
-                    document.getElementById('pickup_longitude').value = lng;
-                    
-                    // Reverse geocode to get location name
-                    const geocoder = new google.maps.Geocoder();
-                    geocoder.geocode({ location: { lat: lat, lng: lng } }, function(results, status) {
-                        if (status === 'OK' && results[0]) {
-                            document.getElementById('pickup_location').value = results[0].formatted_address;
-                        }
-                    });
-                    
-                    // Show map preview
-                    displayMapPreview('pickup', lat, lng, 'Pickup Location', pickupMap);
-                    pickupMap = window.pickupMapInstance;
-                    
-                    // Update route map
-                    setTimeout(updateRouteMap, 100);
-                }
+            // Prefer Google's structured components when browser autofill left city/state empty
+            if (place.address_components) {
+                fillAddressFields(place, prefix);
             }
-            
-            pickupLatDisplay.addEventListener('blur', updatePickupFromCoordinates);
-            pickupLngDisplay.addEventListener('blur', updatePickupFromCoordinates);
-        }
-        
-        // Initialize dropoff location autocomplete with map preview
-        const dropoffInput = document.getElementById('dropoff_location');
-        if (dropoffInput && typeof google !== 'undefined' && google.maps) {
-            const dropoffAutocomplete = new google.maps.places.Autocomplete(dropoffInput, {
-                types: ['establishment', 'geocode'],
-                fields: ['formatted_address', 'name', 'geometry']
-            });
-            
-            let dropoffMap = null;
-            dropoffAutocomplete.addListener('place_changed', function() {
-                const place = dropoffAutocomplete.getPlace();
-                if (place.geometry) {
-                    const lat = place.geometry.location.lat();
-                    const lng = place.geometry.location.lng();
-                    // Update both hidden and visible fields
-                    document.getElementById('dropoff_latitude').value = lat;
-                    document.getElementById('dropoff_longitude').value = lng;
-                    document.getElementById('dropoff_latitude_display').value = lat;
-                    document.getElementById('dropoff_longitude_display').value = lng;
-                    
-                    // Show and display map preview
-                    displayMapPreview('dropoff', lat, lng, place.name || place.formatted_address || 'Dropoff Location', dropoffMap);
-                    dropoffMap = window.dropoffMapInstance;
-                    
-                    // Update route map
-                    setTimeout(updateRouteMap, 100);
-                }
-            });
-            
-            // Reverse geocoding when lat/long are manually entered
-            const dropoffLatDisplay = document.getElementById('dropoff_latitude_display');
-            const dropoffLngDisplay = document.getElementById('dropoff_longitude_display');
-            
-            function updateDropoffFromCoordinates() {
-                const lat = parseFloat(dropoffLatDisplay.value);
-                const lng = parseFloat(dropoffLngDisplay.value);
-                
-                if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-                    // Update hidden fields
-                    document.getElementById('dropoff_latitude').value = lat;
-                    document.getElementById('dropoff_longitude').value = lng;
-                    
-                    // Reverse geocode to get location name
-                    const geocoder = new google.maps.Geocoder();
-                    geocoder.geocode({ location: { lat: lat, lng: lng } }, function(results, status) {
-                        if (status === 'OK' && results[0]) {
-                            document.getElementById('dropoff_location').value = results[0].formatted_address;
-                        }
-                    });
-                    
-                    // Show map preview
-                    displayMapPreview('dropoff', lat, lng, 'Dropoff Location', dropoffMap);
-                    dropoffMap = window.dropoffMapInstance;
-                    
-                    // Update route map
-                    setTimeout(updateRouteMap, 100);
-                }
-            }
-            
-            dropoffLatDisplay.addEventListener('blur', updateDropoffFromCoordinates);
-            dropoffLngDisplay.addEventListener('blur', updateDropoffFromCoordinates);
-        }
-        
-        // Initialize route map when both locations are available (after a delay to ensure Google Maps is loaded)
-        if (typeof google !== 'undefined' && google.maps) {
-            setTimeout(updateRouteMap, 500);
-        } else {
-            // Wait for Google Maps to load
-            window.addEventListener('load', function() {
-                if (typeof google !== 'undefined' && google.maps) {
-                    setTimeout(updateRouteMap, 500);
-                }
-            });
-        }
+            setEndpoint(endpoint, lat, lng, label);
+        });
     }
-    
-    // Function to update route map when both pickup and dropoff are set
+
+    function bindPersonAddress(prefix, endpoint) {
+        const input = document.getElementById(prefix + '_address');
+        if (!input || !google.maps.places) return;
+
+        // Discourage browser autofill so Google Places can work
+        input.setAttribute('autocomplete', 'off');
+        input.setAttribute('autocorrect', 'off');
+        input.setAttribute('autocapitalize', 'off');
+        input.setAttribute('spellcheck', 'false');
+
+        const ac = new google.maps.places.Autocomplete(input, {
+            fields: ['formatted_address', 'address_components', 'geometry', 'name']
+        });
+        ac.addListener('place_changed', function () {
+            const place = ac.getPlace();
+            if (place && place.geometry) {
+                if (place.formatted_address) input.value = place.formatted_address;
+                syncFromPlace(endpoint, place, prefix);
+            }
+        });
+
+        // Fallback: browser autofill / typed address without picking a suggestion
+        let geocodeTimer = null;
+        function scheduleGeocode() {
+            clearTimeout(geocodeTimer);
+            geocodeTimer = setTimeout(function () {
+                geocodePersonAddress(prefix, endpoint);
+            }, 450);
+        }
+
+        input.addEventListener('blur', scheduleGeocode);
+        input.addEventListener('change', scheduleGeocode);
+        ['city', 'state', 'zip', 'country'].forEach(function (field) {
+            const el = document.getElementById(prefix + '_' + field);
+            if (el) {
+                el.addEventListener('blur', scheduleGeocode);
+                el.addEventListener('change', scheduleGeocode);
+            }
+        });
+    }
+
+    function initializeAddressSync() {
+        bindPersonAddress('sender', 'pickup');
+        bindPersonAddress('recipient', 'dropoff');
+        updateRouteMap();
+    }
+
     function updateRouteMap() {
-        const pickupLat = parseFloat(document.getElementById('pickup_latitude').value || document.getElementById('pickup_latitude_display').value);
-        const pickupLng = parseFloat(document.getElementById('pickup_longitude').value || document.getElementById('pickup_longitude_display').value);
-        const dropoffLat = parseFloat(document.getElementById('dropoff_latitude').value || document.getElementById('dropoff_latitude_display').value);
-        const dropoffLng = parseFloat(document.getElementById('dropoff_longitude').value || document.getElementById('dropoff_longitude_display').value);
-        
+        const pickupLat = parseFloat(document.getElementById('pickup_latitude')?.value);
+        const pickupLng = parseFloat(document.getElementById('pickup_longitude')?.value);
+        const dropoffLat = parseFloat(document.getElementById('dropoff_latitude')?.value);
+        const dropoffLng = parseFloat(document.getElementById('dropoff_longitude')?.value);
         const routeMapDiv = document.getElementById('route_map_preview');
         const routeMapMessage = document.getElementById('route_map_message');
-        
-        if (!isNaN(pickupLat) && !isNaN(pickupLng) && !isNaN(dropoffLat) && !isNaN(dropoffLng) && typeof google !== 'undefined' && google.maps) {
-            routeMapDiv.style.display = 'block';
-            routeMapMessage.style.display = 'none';
-            
-            if (!window.routeMapInstance) {
-                window.routeMapInstance = new google.maps.Map(routeMapDiv, {
-                    zoom: 6,
-                    center: { lat: (pickupLat + dropoffLat) / 2, lng: (pickupLng + dropoffLng) / 2 },
-                    mapTypeId: 'roadmap'
-                });
-            }
-            
-            const directionsService = new google.maps.DirectionsService();
-            const directionsRenderer = new google.maps.DirectionsRenderer({
-                map: window.routeMapInstance,
-                suppressMarkers: false,
-                polylineOptions: {
-                    strokeColor: '#4D148C',
-                    strokeWeight: 5,
-                    strokeOpacity: 0.8
-                }
-            });
-            
-            directionsService.route({
-                origin: { lat: pickupLat, lng: pickupLng },
-                destination: { lat: dropoffLat, lng: dropoffLng },
-                travelMode: google.maps.TravelMode.DRIVING
-            }, function(response, status) {
-                if (status === 'OK') {
-                    directionsRenderer.setDirections(response);
+        if (!routeMapDiv || !routeMapMessage) return;
 
-                    // Clear any fallback line/markers from previous failures
-                    if (window.routeFallbackPolyline) {
-                        window.routeFallbackPolyline.setMap(null);
-                        window.routeFallbackPolyline = null;
-                    }
-                    if (window.routeFallbackMarkers && Array.isArray(window.routeFallbackMarkers)) {
-                        window.routeFallbackMarkers.forEach(m => m.setMap(null));
-                        window.routeFallbackMarkers = [];
-                    }
-                    if (routeMapMessage) {
-                        routeMapMessage.style.display = 'none';
-                        routeMapMessage.classList.remove('text-red-500');
-                        routeMapMessage.textContent = '';
-                    }
+        const ready = mapsReady
+            && !isNaN(pickupLat) && !isNaN(pickupLng)
+            && !isNaN(dropoffLat) && !isNaN(dropoffLng)
+            && !(pickupLat === 0 && pickupLng === 0)
+            && !(dropoffLat === 0 && dropoffLng === 0);
 
-                    const bounds = new google.maps.LatLngBounds();
-                    bounds.extend({ lat: pickupLat, lng: pickupLng });
-                    bounds.extend({ lat: dropoffLat, lng: dropoffLng });
-                    window.routeMapInstance.fitBounds(bounds);
-                } else {
-                    console.error('Directions request failed: ' + status);
-
-                    // Fallback: draw a straight line between pickup and dropoff so the admin still sees a route preview.
-                    try {
-                        directionsRenderer.setDirections({ routes: [] });
-                    } catch (e) {}
-
-                    // Clear previous fallback
-                    if (window.routeFallbackPolyline) {
-                        window.routeFallbackPolyline.setMap(null);
-                    }
-                    if (!window.routeFallbackMarkers) window.routeFallbackMarkers = [];
-                    window.routeFallbackMarkers.forEach(m => m.setMap(null));
-                    window.routeFallbackMarkers = [];
-
-                    const originLatLng = { lat: pickupLat, lng: pickupLng };
-                    const destLatLng = { lat: dropoffLat, lng: dropoffLng };
-
-                    window.routeFallbackPolyline = new google.maps.Polyline({
-                        path: [originLatLng, destLatLng],
-                        geodesic: true,
-                        strokeColor: '#4D148C',
-                        strokeOpacity: 0.9,
-                        strokeWeight: 4
-                    });
-                    window.routeFallbackPolyline.setMap(window.routeMapInstance);
-
-                    window.routeFallbackMarkers.push(new google.maps.Marker({
-                        position: originLatLng,
-                        map: window.routeMapInstance,
-                        title: 'Pickup'
-                    }));
-                    window.routeFallbackMarkers.push(new google.maps.Marker({
-                        position: destLatLng,
-                        map: window.routeMapInstance,
-                        title: 'Dropoff'
-                    }));
-
-                    const bounds = new google.maps.LatLngBounds();
-                    bounds.extend(originLatLng);
-                    bounds.extend(destLatLng);
-                    window.routeMapInstance.fitBounds(bounds);
-
-                    // Show message but don't block preview
-                    if (routeMapMessage) {
-                        routeMapMessage.textContent = `Directions unavailable (${status}). Showing a straight-line preview.`;
-                        routeMapMessage.style.display = 'block';
-                        routeMapMessage.classList.add('text-red-500');
-                    }
-                }
-            });
-        } else {
-            routeMapDiv.style.display = 'none';
+        if (!ready) {
             routeMapMessage.style.display = 'block';
-        }
-    }
-    
-    // Helper function to display map preview
-    function displayMapPreview(prefix, lat, lng, title, existingMap) {
-        const mapDiv = document.getElementById(prefix + '_map_preview');
-        if (mapDiv && typeof google !== 'undefined' && google.maps) {
-            mapDiv.style.display = 'block';
-            let map = existingMap;
-            
-            if (!map) {
-                map = new google.maps.Map(mapDiv, {
-                    zoom: 15,
-                    center: { lat: lat, lng: lng },
-                    disableDefaultUI: true,
-                    zoomControl: true
-                });
-                // Store map instance globally for reuse
-                window[prefix + 'MapInstance'] = map;
+            routeMapMessage.classList.remove('text-red-500');
+            if (!mapsReady) {
+                routeMapMessage.textContent = 'Loading map…';
+            } else if (isNaN(pickupLat) || isNaN(pickupLng)) {
+                routeMapMessage.textContent = 'Waiting for sender address…';
+            } else if (isNaN(dropoffLat) || isNaN(dropoffLng)) {
+                routeMapMessage.textContent = 'Waiting for recipient address…';
             } else {
-                map.setCenter({ lat: lat, lng: lng });
+                routeMapMessage.textContent = 'Select sender and recipient addresses from the suggestions to see the route.';
             }
-            
-            // Clear existing markers
-            map.markers = map.markers || [];
-            map.markers.forEach(marker => marker.setMap(null));
-            map.markers = [];
-            
-            // Add new marker
-            const marker = new google.maps.Marker({
-                position: { lat: lat, lng: lng },
-                map: map,
-                title: title
-            });
-            map.markers.push(marker);
+            return;
         }
+
+        routeMapMessage.style.display = 'none';
+
+        if (!window.routeMapInstance) {
+            window.routeMapInstance = new google.maps.Map(routeMapDiv, {
+                zoom: 6,
+                center: { lat: (pickupLat + dropoffLat) / 2, lng: (pickupLng + dropoffLng) / 2 },
+                mapTypeId: 'roadmap'
+            });
+        }
+
+        if (window.routeDirectionsRenderer) {
+            window.routeDirectionsRenderer.setMap(null);
+        }
+        const directionsService = new google.maps.DirectionsService();
+        const directionsRenderer = new google.maps.DirectionsRenderer({
+            map: window.routeMapInstance,
+            suppressMarkers: true,
+            polylineOptions: {
+                strokeColor: '#4D148C',
+                strokeWeight: 5,
+                strokeOpacity: 0.8
+            }
+        });
+        window.routeDirectionsRenderer = directionsRenderer;
+
+        if (window.routeFallbackPolyline) {
+            window.routeFallbackPolyline.setMap(null);
+            window.routeFallbackPolyline = null;
+        }
+        if (window.routeFallbackMarkers) {
+            window.routeFallbackMarkers.forEach(function (m) { m.setMap(null); });
+            window.routeFallbackMarkers = [];
+        }
+
+        directionsService.route({
+            origin: { lat: pickupLat, lng: pickupLng },
+            destination: { lat: dropoffLat, lng: dropoffLng },
+            travelMode: google.maps.TravelMode.DRIVING
+        }, function (response, status) {
+            const pickupLabel = document.getElementById('pickup_location')?.value || 'Pickup';
+            const dropoffLabel = document.getElementById('dropoff_location')?.value || 'Drop-off';
+
+            if (window.routeEndpointMarkers) {
+                window.routeEndpointMarkers.forEach(function (m) { m.setMap(null); });
+            }
+            if (window.routeEndpointInfos) {
+                window.routeEndpointInfos.forEach(function (iw) { iw.close(); });
+            }
+            window.routeEndpointMarkers = [];
+            window.routeEndpointInfos = [];
+
+            function placeLabeledEndpoints() {
+                const originMarker = new google.maps.Marker({
+                    position: { lat: pickupLat, lng: pickupLng },
+                    map: window.routeMapInstance,
+                    title: pickupLabel
+                });
+                const destMarker = new google.maps.Marker({
+                    position: { lat: dropoffLat, lng: dropoffLng },
+                    map: window.routeMapInstance,
+                    title: dropoffLabel
+                });
+                const originInfo = new google.maps.InfoWindow({
+                    content: '<div style="font:12px Arial,sans-serif;max-width:180px;"><strong>Pickup</strong><br>' + pickupLabel.replace(/</g, '&lt;') + '</div>'
+                });
+                const destInfo = new google.maps.InfoWindow({
+                    content: '<div style="font:12px Arial,sans-serif;max-width:180px;"><strong>Delivery</strong><br>' + dropoffLabel.replace(/</g, '&lt;') + '</div>'
+                });
+                originInfo.open(window.routeMapInstance, originMarker);
+                destInfo.open(window.routeMapInstance, destMarker);
+                window.routeEndpointMarkers = [originMarker, destMarker];
+                window.routeEndpointInfos = [originInfo, destInfo];
+            }
+
+            if (status === 'OK') {
+                directionsRenderer.setDirections(response);
+                const bounds = new google.maps.LatLngBounds();
+                bounds.extend({ lat: pickupLat, lng: pickupLng });
+                bounds.extend({ lat: dropoffLat, lng: dropoffLng });
+                window.routeMapInstance.fitBounds(bounds);
+                placeLabeledEndpoints();
+                routeMapMessage.style.display = 'none';
+                return;
+            }
+
+            // Straight-line fallback (e.g. UK → US when driving directions fail)
+            try { directionsRenderer.setDirections({ routes: [] }); } catch (e) {}
+            const originLatLng = { lat: pickupLat, lng: pickupLng };
+            const destLatLng = { lat: dropoffLat, lng: dropoffLng };
+            window.routeFallbackPolyline = new google.maps.Polyline({
+                path: [originLatLng, destLatLng],
+                geodesic: true,
+                strokeColor: '#4D148C',
+                strokeOpacity: 0.9,
+                strokeWeight: 4
+            });
+            window.routeFallbackPolyline.setMap(window.routeMapInstance);
+            placeLabeledEndpoints();
+            const bounds = new google.maps.LatLngBounds();
+            bounds.extend(originLatLng);
+            bounds.extend(destLatLng);
+            window.routeMapInstance.fitBounds(bounds);
+            routeMapMessage.textContent = 'Exact driving route unavailable — showing direct line between locations.';
+            routeMapMessage.style.display = 'block';
+            routeMapMessage.classList.add('text-red-500');
+        });
     }
-    
+
     function fillAddressFields(place, prefix) {
         const addressComponents = place.address_components || [];
-        
-        addressComponents.forEach(component => {
+        addressComponents.forEach(function (component) {
             const types = component.types;
-            
-            if (types.includes('street_number') || types.includes('route')) {
-                // Address is already filled by autocomplete
-            } else if (types.includes('locality')) {
-                document.getElementById(prefix + '_city').value = component.long_name;
+            if (types.includes('locality') || types.includes('postal_town') || types.includes('sublocality')) {
+                const cityEl = document.getElementById(prefix + '_city');
+                if (cityEl && (!cityEl.value || types.includes('locality'))) {
+                    if (types.includes('locality') || !cityEl.value) cityEl.value = component.long_name;
+                }
             } else if (types.includes('administrative_area_level_1')) {
-                document.getElementById(prefix + '_state').value = component.short_name;
+                const stateEl = document.getElementById(prefix + '_state');
+                if (stateEl) stateEl.value = component.short_name;
             } else if (types.includes('postal_code')) {
-                document.getElementById(prefix + '_zip').value = component.long_name;
+                const zipEl = document.getElementById(prefix + '_zip');
+                if (zipEl) zipEl.value = component.long_name;
             } else if (types.includes('country')) {
-                document.getElementById(prefix + '_country').value = component.long_name;
+                const countryEl = document.getElementById(prefix + '_country');
+                if (countryEl) countryEl.value = component.long_name;
             }
         });
     }
 })();
 
-// Cost calculation function (global scope)
 function calculateTotalCost() {
     const shippingCost = parseFloat(document.getElementById('base_cost').value) || 0;
     const clearanceCost = parseFloat(document.getElementById('clearance_cost').value) || 0;
-    const totalCost = shippingCost + clearanceCost;
-    
     const totalCostField = document.getElementById('total_cost');
     if (totalCostField) {
-        totalCostField.value = '$' + totalCost.toFixed(2);
+        totalCostField.value = '$' + (shippingCost + clearanceCost).toFixed(2);
     }
 }
 
-// Add event listeners for cost calculation
-document.addEventListener('DOMContentLoaded', function() {
-    const baseCostInput = document.getElementById('base_cost');
-    const clearanceCostInput = document.getElementById('clearance_cost');
-    
-    if (baseCostInput) {
-        baseCostInput.addEventListener('input', calculateTotalCost);
-        baseCostInput.addEventListener('blur', calculateTotalCost);
-    }
+document.addEventListener('DOMContentLoaded', function () {
+    ['base_cost', 'clearance_cost'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('input', calculateTotalCost);
+            el.addEventListener('blur', calculateTotalCost);
+        }
+    });
 
-    if (clearanceCostInput) {
-        clearanceCostInput.addEventListener('input', calculateTotalCost);
-        clearanceCostInput.addEventListener('blur', calculateTotalCost);
-    }
-});
-
-// Handle form submission with loading state
-document.addEventListener('DOMContentLoaded', function() {
     const form = document.getElementById('create-shipment-form');
-    const submitButton = form.querySelector('button[type="submit"]');
-    
-    if (form) {
-        form.addEventListener('submit', function(e) {
-            // Sync visible lat/long fields to hidden fields before submission
-            const pickupLatDisplay = document.getElementById('pickup_latitude_display');
-            const pickupLngDisplay = document.getElementById('pickup_longitude_display');
-            if (pickupLatDisplay && pickupLngDisplay) {
-                const lat = pickupLatDisplay.value;
-                const lng = pickupLngDisplay.value;
-                if (lat && lng) {
-                    document.getElementById('pickup_latitude').value = lat;
-                    document.getElementById('pickup_longitude').value = lng;
-                }
-            }
-            
-            const dropoffLatDisplay = document.getElementById('dropoff_latitude_display');
-            const dropoffLngDisplay = document.getElementById('dropoff_longitude_display');
-            if (dropoffLatDisplay && dropoffLngDisplay) {
-                const lat = dropoffLatDisplay.value;
-                const lng = dropoffLngDisplay.value;
-                if (lat && lng) {
-                    document.getElementById('dropoff_latitude').value = lat;
-                    document.getElementById('dropoff_longitude').value = lng;
-                }
-            }
-            
-            // Calculate and sync total cost (remove $ sign for submission)
+    const submitButton = form && form.querySelector('button[type="submit"]');
+    if (form && submitButton) {
+        form.addEventListener('submit', function () {
             calculateTotalCost();
             const totalCostField = document.getElementById('total_cost');
             if (totalCostField) {
                 let totalCostValue = totalCostField.value.replace('$', '').trim();
-                // Ensure it's a valid number
-                if (isNaN(parseFloat(totalCostValue))) {
-                    totalCostValue = '0.00';
-                }
+                if (isNaN(parseFloat(totalCostValue))) totalCostValue = '0.00';
                 totalCostField.value = totalCostValue;
             }
-            
-            // Show loading state
             submitButton.disabled = true;
             submitButton.textContent = 'Creating...';
             submitButton.classList.add('opacity-50', 'cursor-not-allowed');
-            
-            // Form will submit normally via POST
-            // Loading state will be cleared on page reload
         });
     }
 });

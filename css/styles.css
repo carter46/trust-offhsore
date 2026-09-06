@@ -478,3 +478,91 @@ body {
     -webkit-backdrop-filter: blur(16px);
     border: 1px solid rgba(255, 255, 255, 0.1);
 }
+
+/* Permanent address labels on tracking map endpoints */
+.map-endpoint-address-label {
+    position: absolute;
+    transform: translate(-50%, calc(-100% - 10px));
+    pointer-events: none;
+    z-index: 1000;
+    max-width: 160px;
+}
+
+.map-endpoint-address-label__inner {
+    position: relative;
+    background: #ffffff;
+    border: 1px solid rgba(77, 20, 140, 0.2);
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+    padding: 5px 7px;
+    font-family: Arial, Helvetica, sans-serif;
+    line-height: 1.25;
+}
+
+.map-endpoint-address-label__inner strong {
+    display: block;
+    color: #4D148C;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 1px;
+}
+
+.map-endpoint-address-label__inner span {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    color: #333333;
+    font-size: 10px;
+    word-break: break-word;
+}
+
+.map-endpoint-address-label__inner::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -5px;
+    transform: translateX(-50%);
+    border-width: 5px 5px 0 5px;
+    border-style: solid;
+    border-color: #ffffff transparent transparent transparent;
+    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.08));
+}
+
+.map-endpoint-address-label--current .map-endpoint-address-label__inner {
+    border-color: rgba(255, 98, 0, 0.45);
+    background: #fff7f0;
+}
+
+.map-endpoint-address-label--current .map-endpoint-address-label__inner strong {
+    color: #FF6200;
+}
+
+.map-endpoint-address-label--current .map-endpoint-address-label__inner::after {
+    border-color: #fff7f0 transparent transparent transparent;
+}
+
+@media (max-width: 767px) {
+    .map-endpoint-address-label {
+        max-width: 112px;
+        transform: translate(-50%, calc(-100% - 8px));
+    }
+
+    .map-endpoint-address-label__inner {
+        padding: 3px 5px;
+        border-radius: 4px;
+        box-shadow: 0 1px 5px rgba(0, 0, 0, 0.12);
+    }
+
+    .map-endpoint-address-label__inner strong {
+        font-size: 8px;
+        letter-spacing: 0.02em;
+    }
+
+    .map-endpoint-address-label__inner span {
+        font-size: 9px;
+        -webkit-line-clamp: 2;
+    }
+}
+

@@ -389,16 +389,30 @@ include __DIR__ . '/includes/header.php';
     </div>
 </main>
 <script>
+<?php
+$mapPickupCoords = getShipmentMapEndpointCoords($shipment, 'pickup');
+$mapDropoffCoords = getShipmentMapEndpointCoords($shipment, 'dropoff');
+$mapPickupLabel = getShipmentMapEndpointShortLabel($shipment, 'pickup');
+$mapDropoffLabel = getShipmentMapEndpointShortLabel($shipment, 'dropoff');
+$mapPickupQuery = getShipmentMapEndpointLabel($shipment, 'pickup');
+$mapDropoffQuery = getShipmentMapEndpointLabel($shipment, 'dropoff');
+?>
 window.__shipmentRouteFallback = {
     pickup: {
-        name: <?php echo json_encode($shipment['pickup_location'] ?? ''); ?>,
-        lat: <?php echo json_encode($shipment['pickup_latitude'] ?? null); ?>,
-        lng: <?php echo json_encode($shipment['pickup_longitude'] ?? null); ?>
+        name: <?php echo json_encode($mapPickupLabel); ?>,
+        query: <?php echo json_encode($mapPickupQuery); ?>,
+        city: <?php echo json_encode(trim((string) ($shipment['sender_city'] ?? ''))); ?>,
+        country: <?php echo json_encode(trim((string) ($shipment['sender_country'] ?? ''))); ?>,
+        lat: <?php echo json_encode($mapPickupCoords['lat']); ?>,
+        lng: <?php echo json_encode($mapPickupCoords['lng']); ?>
     },
     dropoff: {
-        name: <?php echo json_encode($shipment['dropoff_location'] ?? ''); ?>,
-        lat: <?php echo json_encode($shipment['dropoff_latitude'] ?? null); ?>,
-        lng: <?php echo json_encode($shipment['dropoff_longitude'] ?? null); ?>
+        name: <?php echo json_encode($mapDropoffLabel); ?>,
+        query: <?php echo json_encode($mapDropoffQuery); ?>,
+        city: <?php echo json_encode(trim((string) ($shipment['recipient_city'] ?? ''))); ?>,
+        country: <?php echo json_encode(trim((string) ($shipment['recipient_country'] ?? ''))); ?>,
+        lat: <?php echo json_encode($mapDropoffCoords['lat']); ?>,
+        lng: <?php echo json_encode($mapDropoffCoords['lng']); ?>
     }
 };
 </script>
