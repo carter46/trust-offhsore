@@ -219,43 +219,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $shipmen
             }
         }
 
+        $newEventId = 0;
         if ($eventType !== '') {
             // Auto-generate a reasonable description if admin leaves it empty.
             if ($description === '') {
                 $description = $eventType . ($location !== '' ? ' — ' . $location : '');
             }
 
-            // Shipment status was already saved above from the Status field. This
-            // request only creates the tracking event; otherwise the API would
-            // overwrite the selected status with the event type.
-            $updateStatus = false;
-            $newStatus = $shipmentStatus;
-
-            // Release session lock before internal HTTP request
-            if (session_status() === PHP_SESSION_ACTIVE) {
-                session_write_close();
+            // Shipment status was already saved above from the Status field; this only adds the tracking event.
+            $eventDate = date('Y-m-d H:i:s');
+            if (hasUsableMapCoords($latitude, $longitude)) {
+                $eventStmt = $conn->prepare('INSERT INTO tracking_events (shipment_id, event_type, description, location, latitude, longitude, event_date) VALUES (?, ?, ?, ?, ?, ?, ?)');
+                $eventStmt->bind_param('isssdds', $shipmentId, $eventType, $description, $location, $latitude, $longitude, $eventDate);
+            } else {
+                $eventStmt = $conn->prepare('INSERT INTO tracking_events (shipment_id, event_type, description, location, latitude, longitude, event_date) VALUES (?, ?, ?, ?, NULL, NULL, ?)');
+                $eventStmt->bind_param('issss', $shipmentId, $eventType, $description, $location, $eventDate);
             }
-
-            $ch = curl_init();
-            $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-            curl_setopt($ch, CURLOPT_URL, $protocol . '://' . $_SERVER['HTTP_HOST'] . '/api/update-status.php');
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-                'shipment_id' => $shipmentId,
-                'event_type' => $eventType,
-                'description' => $description,
-                'location' => $location,
-                'latitude' => $latitude,
-                'longitude' => $longitude,
-                'update_status' => $updateStatus,
-                'new_status' => $newStatus
-            ]));
-            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_COOKIE, session_name() . '=' . session_id());
-
-            $response = curl_exec($ch);
-            curl_close($ch);
+            if ($eventStmt->execute()) {
+                $newEventId = (int) $eventStmt->insert_id;
+            }
+            $eventStmt->close();
         }
 
         // Send exactly one notification for every real status change, regardless
@@ -266,8 +249,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $shipmen
         if ($statusChanged) {
             $recipientEmail = $recipientEmail ?? ($shipment['recipient_email'] ?? '');
             if (!empty($recipientEmail)) {
-                $emailResult = sendShipmentNotificationEmail($shipmentId);
-                $emailStatus = $emailResult['success'] ? 'sent' : 'failed';
+                $emailReference = $newEventId > 0
+                    ? shipmentEmailReference($shipmentId, $newEventId)
+                    : shipmentEmailReference($shipmentId, latestShipmentEventId($shipmentId), time());
+                $emailResult = sendShipmentNotificationEmail($shipmentId, null, $emailReference);
+                $emailStatus = emailResultFlashStatus($emailResult);
+                rememberEmailResultForFlash($emailResult);
             } else {
                 $emailStatus = 'missing-recipient-email';
             }

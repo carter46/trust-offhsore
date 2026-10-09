@@ -51,28 +51,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'send_email_notification' => isset($_POST['send_email_notification']) && $_POST['send_email_notification'] == '1' ? true : false
     ];
 
-    // #region agent log
-    // Log to site root so it's available on hosting File Manager/FTP
-    $agentLogFile = __DIR__ . '/../debug.log';
-    $agentLogLine = json_encode([
-        'sessionId' => 'shipment-create-timeout',
-        'runId' => 'pre-fix',
-        'hypothesisId' => 'H2',
-        'location' => 'admin/create-shipment.php:input',
-        'message' => 'Prepared input for API',
-        'data' => [
-            'hasSession' => session_status() === PHP_SESSION_ACTIVE,
-            'sessionIdHash' => substr(hash('sha256', session_id() ?: 'none'), 0, 12),
-            'inputKeysCount' => count($input),
-            'hasEmailPhone' => (!empty($input['sender_email']) || !empty($input['sender_phone']) || !empty($input['recipient_email']) || !empty($input['recipient_phone'])),
-        ],
-        'timestamp' => (int) round(microtime(true) * 1000),
-    ]) . "\n";
-    if (@file_put_contents($agentLogFile, $agentLogLine, FILE_APPEND) === false) {
-        error_log('AGENT_LOG ' . $agentLogLine);
-    }
-    // #endregion
-    
     // Handle image upload if present
     if (isset($_FILES['item_image']) && $_FILES['item_image']['error'] === UPLOAD_ERR_OK) {
         $file = $_FILES['item_image'];
@@ -108,25 +86,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $apiUrl = $protocol . '://' . $_SERVER['HTTP_HOST'] . '/api/create-shipment.php';
 
-    // #region agent log
-    $t0 = microtime(true);
-    $agentLogLine = json_encode([
-        'sessionId' => 'shipment-create-timeout',
-        'runId' => 'pre-fix',
-        'hypothesisId' => 'H2',
-        'location' => 'admin/create-shipment.php:curl:before',
-        'message' => 'About to curl_exec() create-shipment API',
-        'data' => [
-            'apiUrl' => $apiUrl,
-            'protocol' => $protocol,
-            'timeoutSeconds' => 30,
-        ],
-        'timestamp' => (int) round(microtime(true) * 1000),
-    ]) . "\n";
-    if (@file_put_contents($agentLogFile, $agentLogLine, FILE_APPEND) === false) {
-        error_log('AGENT_LOG ' . $agentLogLine);
-    }
-    // #endregion
     curl_setopt($ch, CURLOPT_URL, $apiUrl);
     curl_setopt($ch, CURLOPT_POST, true);
     $jsonPayload = json_encode($input);
@@ -135,37 +94,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_COOKIE, session_name() . '=' . session_id());
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30); // Add timeout to prevent infinite loading
+    // The API may wait on the email gateway (two 15s attempts) and then the SMTP backup before it answers.
+    curl_setopt($ch, CURLOPT_TIMEOUT, 60);
     
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $effectiveUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
-    $curlErrno = curl_errno($ch);
     $curlError = curl_error($ch);
     curl_close($ch);
 
-    // #region agent log
-    $agentLogLine = json_encode([
-        'sessionId' => 'shipment-create-timeout',
-        'runId' => 'pre-fix',
-        'hypothesisId' => 'H2',
-        'location' => 'admin/create-shipment.php:curl:after',
-        'message' => 'curl_exec() returned',
-        'data' => [
-            'httpCode' => $httpCode,
-            'curlErrno' => $curlErrno,
-            'curlError' => $curlError ? substr($curlError, 0, 140) : null,
-            'effectiveUrl' => $effectiveUrl,
-            'responseLen' => is_string($response) ? strlen($response) : null,
-            'elapsedMs' => (int) round((microtime(true) - $t0) * 1000),
-        ],
-        'timestamp' => (int) round(microtime(true) * 1000),
-    ]) . "\n";
-    if (@file_put_contents($agentLogFile, $agentLogLine, FILE_APPEND) === false) {
-        error_log('AGENT_LOG ' . $agentLogLine);
-    }
-    // #endregion
-    
     if ($curlError) {
         $error = 'Connection error: ' . $curlError;
         $response = null;

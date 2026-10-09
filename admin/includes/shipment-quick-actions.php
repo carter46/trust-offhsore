@@ -302,6 +302,8 @@ function renderShipmentQuickUpdateModal() {
 }
 
 function renderAdminFlashMessages() {
+    $emailReason = (string) ($_SESSION['email_flash_reason'] ?? '');
+    unset($_SESSION['email_flash_reason']);
     if (isset($_GET['updated']) && $_GET['updated'] == '1'): ?>
         <div class="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 px-4 py-3 rounded mb-6">
             Shipment update saved. Public tracking will use the latest status and location.
@@ -310,10 +312,24 @@ function renderAdminFlashMessages() {
     <?php if (isset($_GET['email']) && $_GET['email'] === 'sent'): ?>
         <div class="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 px-4 py-3 rounded mb-6">
             Status-update email sent to the recipient.
+            <?php if ($emailReason !== ''): ?>
+                <span class="block text-sm"><?php echo htmlspecialchars($emailReason); ?></span>
+            <?php endif; ?>
         </div>
     <?php elseif (isset($_GET['email']) && $_GET['email'] === 'failed'): ?>
         <div class="bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-6">
-            The shipment was updated, but the recipient email could not be sent. Check SMTP settings.
+            The shipment was updated, but the recipient email could not be sent. Check the email settings.
+            <?php if ($emailReason !== ''): ?>
+                <span class="block text-sm">Reason: <?php echo htmlspecialchars($emailReason); ?></span>
+            <?php endif; ?>
+        </div>
+    <?php elseif (isset($_GET['email']) && $_GET['email'] === 'uncertain'): ?>
+        <div class="bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 px-4 py-3 rounded mb-6">
+            The shipment was updated, but the email gateway did not confirm the recipient email. It may already have been sent, so it was not resent automatically.
+            <a href="/admin/settings.php#mail-gateway-ledger" class="underline font-bold">Review unconfirmed emails</a>
+            <?php if ($emailReason !== ''): ?>
+                <span class="block text-sm">Reason: <?php echo htmlspecialchars($emailReason); ?></span>
+            <?php endif; ?>
         </div>
     <?php elseif (isset($_GET['email']) && $_GET['email'] === 'missing-recipient-email'): ?>
         <div class="bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 px-4 py-3 rounded mb-6">

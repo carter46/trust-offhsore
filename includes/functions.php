@@ -8,6 +8,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../PHPMailer/PHPMailer.php';
 require_once __DIR__ . '/../PHPMailer/SMTP.php';
 require_once __DIR__ . '/../PHPMailer/Exception.php';
+require_once __DIR__ . '/mail-gateway.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\SMTP;
@@ -114,6 +115,14 @@ function sanitizeInput($data) {
 }
 
 /**
+ * Plain text from stored or submitted input (undoes older sanitizeInput escaping, strips tags).
+ */
+function cleanTextInput($data) {
+    $text = html_entity_decode((string) $data, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    return trim(strip_tags($text));
+}
+
+/**
  * Format date for display
  */
 function formatDate($date, $format = 'F j, Y') {
@@ -192,6 +201,14 @@ function clearSettingCache($key = null) {
     } else {
         unset($GLOBALS['__settings_cache'][(string) $key]);
     }
+}
+
+/**
+ * Configured company name as plain text, or a neutral fallback when none is set.
+ */
+function getCompanyName() {
+    $name = cleanTextInput(getSetting('company_name', ''));
+    return $name !== '' ? $name : 'Shipping Company';
 }
 
 /**
@@ -290,6 +307,31 @@ function updateSetting($key, $value) {
     }
     
     return $result;
+}
+
+/**
+ * Per-session CSRF token for admin forms and admin JSON endpoints.
+ */
+function csrfToken() {
+    if (empty($_SESSION['csrf_token']) || !is_string($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+function csrfField() {
+    return '<input type="hidden" name="csrf_token" value="' . htmlspecialchars(csrfToken()) . '">';
+}
+
+/**
+ * Checks the token from the form field or the X-CSRF-Token header.
+ */
+function csrfValid($token = null) {
+    if ($token === null) {
+        $token = $_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+    }
+    $expected = $_SESSION['csrf_token'] ?? '';
+    return is_string($token) && is_string($expected) && $expected !== '' && hash_equals($expected, $token);
 }
 
 /**
@@ -920,80 +962,173 @@ function getTrackingStepVisual($step) {
 }
 
 /**
- * Send email using PHPMailer
- * @param string $to Recipient email address
- * @param string $subject Email subject
- * @param string $body Email body (HTML or plain text)
- * @param bool $isHTML Whether the body is HTML (default: true)
- * @param string|null $fromEmail Override from email (uses config default if null)
- * @param string|null $fromName Override from name (uses config default if null)
- * @return array ['success' => bool, 'message' => string]
+ * Mask a secret for logs (show last 4 chars only).
  */
-function sendEmail($to, $subject, $body, $isHTML = true, $fromEmail = null, $fromName = null) {
+function maskSecret($value) {
+    $value = (string) $value;
+    if ($value === '') {
+        return '';
+    }
+    $len = strlen($value);
+    if ($len <= 4) {
+        return str_repeat('*', $len);
+    }
+    return str_repeat('*', max(0, $len - 4)) . substr($value, -4);
+}
+
+/**
+ * Append a JSON line to logs/{channel}.log
+ * Channels: email, settings
+ */
+function writeAppLog($channel, $message, $context = [], $level = 'INFO') {
+    $allowed = ['email', 'settings'];
+    $channel = strtolower(preg_replace('/[^a-z0-9_-]/i', '', (string) $channel));
+    if (!in_array($channel, $allowed, true)) {
+        $channel = 'settings';
+    }
+
+    $logsDir = __DIR__ . '/../logs';
+    if (!is_dir($logsDir)) {
+        @mkdir($logsDir, 0755, true);
+    }
+
+    $line = [
+        'ts' => date('c'),
+        'level' => strtoupper((string) $level),
+        'message' => (string) $message,
+    ];
+    if (!empty($context) && is_array($context)) {
+        $line['context'] = $context;
+    }
+
+    $encoded = json_encode($line, JSON_UNESCAPED_SLASHES);
+    if ($encoded === false) {
+        $encoded = date('c') . ' [' . $level . '] ' . $message;
+    }
+
+    $path = $logsDir . '/' . $channel . '.log';
+    $written = @file_put_contents($path, $encoded . "\n", FILE_APPEND | LOCK_EX);
+    if ($written === false) {
+        // Fallback when hosting blocks writes to /logs
+        error_log('[app-log:' . $channel . '] ' . $encoded);
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Send email — through the WordPress email gateway when it is switched on, otherwise (or as fallback)
+ * through PHPMailer SMTP.
+ *
+ * $reference identifies this email at the gateway (for example shipment:12:event:345): a retry with the same
+ * reference is never sent twice. SMTP ignores it apart from logging.
+ *
+ * @return array success, message, error, provider, host, port (+ uncertain, fallback_reason, reference when relevant)
+ */
+function sendEmail($to, $subject, $body, $isHTML = true, $fromEmail = null, $fromName = null, $reference = null) {
+    if (mailGatewayEnabled()) {
+        $gateway = sendEmailViaWordPressGateway($to, $subject, $body, $isHTML, $reference);
+        if (!$gateway['fallback']) {
+            return $gateway['result'];
+        }
+        recordMailGatewayFallback($gateway['fallback_reason'], $gateway['reference']);
+        $result = sendEmailViaConfiguredProvider($to, $subject, $body, $isHTML, $fromEmail, $fromName);
+        $result['fallback_reason'] = $gateway['fallback_reason'];
+        if ($result['success']) {
+            mailGatewayCloseLedgerReference($gateway['reference'], 'backup_sent', 'Sent with the backup provider.');
+        }
+        writeAppLog('email', $result['success'] ? 'Backup provider sent the email' : 'Backup provider also failed', [
+            'provider' => $result['provider'] ?? null,
+            'to' => $to,
+            'reference' => $gateway['reference'] ?? $reference,
+            'fallback_reason' => $gateway['fallback_reason'],
+            'error' => $result['error'] ?? null,
+        ], $result['success'] ? 'INFO' : 'ERROR');
+        return $result;
+    }
+
+    return sendEmailViaConfiguredProvider($to, $subject, $body, $isHTML, $fromEmail, $fromName);
+}
+
+/**
+ * Send email via PHPMailer SMTP (the site's own provider, and the backup when the WordPress gateway is on).
+ */
+function sendEmailViaConfiguredProvider($to, $subject, $body, $isHTML = true, $fromEmail = null, $fromName = null) {
+    $smtpHost = getSetting('smtp_host', defined('SMTP_HOST') ? SMTP_HOST : 'smtp.gmail.com');
+    $smtpPort = intval(getSetting('smtp_port', defined('SMTP_PORT') ? SMTP_PORT : 587));
+    $smtpUsername = getSetting('smtp_username', defined('SMTP_USERNAME') ? SMTP_USERNAME : '');
+    $smtpPassword = getSetting('smtp_password', defined('SMTP_PASSWORD') ? SMTP_PASSWORD : '');
+    $smtpEncryption = getSetting('smtp_encryption', defined('SMTP_ENCRYPTION') ? SMTP_ENCRYPTION : 'tls');
+    $fromEmail = $fromEmail ?: getSetting('smtp_from_email', defined('SMTP_FROM_EMAIL') ? SMTP_FROM_EMAIL : 'noreply@example.com');
+    $fromName = $fromName ?: cleanTextInput(getSetting('smtp_from_name', defined('SMTP_FROM_NAME') ? SMTP_FROM_NAME : 'Shipping Company'));
+
+    $base = [
+        'provider' => 'phpmailer',
+        'host' => $smtpHost,
+        'port' => $smtpPort,
+    ];
+    $logContext = $base + [
+        'to' => $to,
+        'encryption' => $smtpEncryption,
+        'username' => $smtpUsername,
+    ];
+
     try {
-        // Get email settings from database or use config defaults
-        $smtpHost = getSetting('smtp_host', defined('SMTP_HOST') ? SMTP_HOST : 'smtp.gmail.com');
-        $smtpPort = intval(getSetting('smtp_port', defined('SMTP_PORT') ? SMTP_PORT : 587));
-        $smtpUsername = getSetting('smtp_username', defined('SMTP_USERNAME') ? SMTP_USERNAME : '');
-        $smtpPassword = getSetting('smtp_password', defined('SMTP_PASSWORD') ? SMTP_PASSWORD : '');
-        $smtpEncryption = getSetting('smtp_encryption', defined('SMTP_ENCRYPTION') ? SMTP_ENCRYPTION : 'tls');
-        $defaultFromEmail = getSetting('smtp_from_email', defined('SMTP_FROM_EMAIL') ? SMTP_FROM_EMAIL : 'noreply@example.com');
-        $defaultFromName = getSetting('smtp_from_name', defined('SMTP_FROM_NAME') ? SMTP_FROM_NAME : 'Shipping Company');
-        
         $mail = new PHPMailer(true);
-        
-        // Server settings
+
         $mail->isSMTP();
         $mail->Host = $smtpHost;
         $mail->SMTPAuth = !empty($smtpUsername) && !empty($smtpPassword);
         $mail->Username = $smtpUsername;
         $mail->Password = $smtpPassword;
-        
-        // Set encryption (PHPMailer uses string values: 'ssl', 'tls', or empty string)
+
         if ($smtpEncryption === 'ssl') {
             $mail->SMTPSecure = 'ssl';
         } elseif ($smtpEncryption === 'none') {
             $mail->SMTPAutoTLS = false;
             $mail->SMTPSecure = '';
         } else {
-            // Default to TLS
             $mail->SMTPSecure = 'tls';
         }
-        
+
         $mail->Port = $smtpPort;
         $mail->CharSet = 'UTF-8';
-        
-        // Set timeouts to prevent hanging
-        $mail->Timeout = 15; // Connection timeout in seconds
+        $mail->Timeout = 15;
         $mail->SMTPKeepAlive = false;
-        $mail->SMTPDebug = 0; // Set to 2 for debugging, 0 for production
-        $mail->Debugoutput = function($str, $level) {
-            // Log debug output to error log instead of displaying
-            error_log("PHPMailer Debug: " . $str);
-        };
-        
-        // Recipients
-        $mail->setFrom($fromEmail ?: $defaultFromEmail, $fromName ?: $defaultFromName);
-        error_log("sendEmail - From: " . ($fromEmail ?: $defaultFromEmail));
-        error_log("sendEmail - To: $to");
+        $mail->SMTPDebug = 0;
+
+        $mail->setFrom($fromEmail, $fromName);
         $mail->addAddress($to);
-        
-        // Content
+
         $mail->isHTML($isHTML);
         $mail->Subject = $subject;
         $mail->Body = $body;
         if ($isHTML) {
-            $mail->AltBody = strip_tags($body);
+            $mail->AltBody = mailGatewayPlainText($body);
         }
-        
+
         $mail->send();
-        return ['success' => true, 'message' => 'Email sent successfully'];
-    } catch (Exception $e) {
-        return ['success' => false, 'message' => 'Email could not be sent. Error: ' . $e->getMessage()];
-    } catch (\Exception $e) {
-        return ['success' => false, 'message' => 'Email could not be sent. Error: ' . $e->getMessage()];
-    } catch (\Error $e) {
-        return ['success' => false, 'message' => 'Fatal error: ' . $e->getMessage()];
+        writeAppLog('email', 'Email sent successfully via SMTP', $logContext, 'INFO');
+        return $base + [
+            'success' => true,
+            'message' => 'Email sent successfully',
+            'error' => null,
+        ];
+    } catch (\Throwable $e) {
+        $errorDetail = $e->getMessage();
+        $title = 'SMTP Error';
+        if (stripos($errorDetail, 'auth') !== false || stripos($errorDetail, '535') !== false) {
+            $title = 'SMTP Authentication Failed';
+        } elseif (stripos($errorDetail, 'connect') !== false) {
+            $title = 'SMTP Connection Failed';
+        }
+        writeAppLog('email', $title, $logContext + ['error' => $errorDetail], 'ERROR');
+        return $base + [
+            'success' => false,
+            'title' => $title,
+            'message' => 'Email could not be sent. ' . $title . ': ' . $errorDetail,
+            'error' => $errorDetail,
+        ];
     }
 }
 
@@ -1012,7 +1147,10 @@ function generateShipmentEmailTemplate($shipment, $trackingEvents = []) {
     $logoPath = getLogo('light');
     $showTextLogo = getSetting('show_text_logo', '0'); // Default to 0 (hide text logo when image exists)
     $logoUrl = '';
-    if (!empty($logoPath)) {
+    $emailLogoUrl = trim((string) getSetting('email_logo_url', ''));
+    if ($emailLogoUrl !== '' && preg_match('#^https://#i', $emailLogoUrl)) {
+        $logoUrl = $emailLogoUrl;
+    } elseif (!empty($logoPath)) {
         // If logo path is relative, make it absolute
         if (strpos($logoPath, 'http') !== 0) {
             $logoUrl = rtrim($siteUrl, '/') . '/' . ltrim($logoPath, '/');
@@ -1455,78 +1593,201 @@ function generateShipmentEmailTemplate($shipment, $trackingEvents = []) {
 }
 
 /**
- * Send shipment notification email to recipient
- * @param int $shipmentId Shipment ID
- * @return array ['success' => bool, 'message' => string]
+ * Keep the email failure reason (or the backup-provider note) for the next admin flash message.
  */
-function sendShipmentNotificationEmail($shipmentId) {
+function rememberEmailResultForFlash(array $emailResult) {
+    unset($_SESSION['email_flash_reason']);
+    if (empty($emailResult['success'])) {
+        $_SESSION['email_flash_reason'] = (string) ($emailResult['error'] ?? $emailResult['message'] ?? '');
+    } elseif (!empty($emailResult['fallback_reason'])) {
+        $_SESSION['email_flash_reason'] = 'Sent with the backup provider because the WordPress email gateway was unavailable: ' . $emailResult['fallback_reason'];
+    }
+}
+
+/**
+ * "sent", "uncertain" (the gateway may have sent it; not resent automatically) or "failed", for the admin redirect.
+ */
+function emailResultFlashStatus(array $emailResult) {
+    if (!empty($emailResult['success'])) {
+        return 'sent';
+    }
+    return !empty($emailResult['uncertain']) ? 'uncertain' : 'failed';
+}
+
+/**
+ * Gateway reference for a shipment email about one tracking event.
+ */
+function shipmentEmailReference($shipmentId, $eventId, $resend = 0) {
+    $reference = 'shipment:' . (int) $shipmentId . ':event:' . (int) $eventId;
+    return $resend > 0 ? $reference . ':resend:' . (int) $resend : $reference;
+}
+
+/**
+ * Latest public tracking event ID of a shipment (0 if none).
+ */
+function latestShipmentEventId($shipmentId) {
     global $conn;
-    
-    // Get shipment data
+    $stmt = $conn->prepare("SELECT id FROM tracking_events WHERE shipment_id = ? AND event_type != 'Admin Note' ORDER BY event_date DESC, id DESC LIMIT 1");
+    $stmt->bind_param('i', $shipmentId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return $row ? (int) $row['id'] : 0;
+}
+
+/**
+ * Send shipment notification email to recipient.
+ *
+ * @param int         $shipmentId Shipment.
+ * @param int|null    $eventId    Tracking event the email is about (its reference keeps retries from sending twice).
+ * @param string|null $reference  Explicit gateway reference (ledger retries and deliberate resends).
+ * @return array sendEmail() result
+ */
+function sendShipmentNotificationEmail($shipmentId, $eventId = null, $reference = null) {
+    $email = buildShipmentNotificationEmail($shipmentId);
+    if (!$email['success']) {
+        return $email + ['error' => $email['message'] ?? 'Shipment email could not be built'];
+    }
+
+    if ($reference === null) {
+        $eventId = $eventId ? (int) $eventId : latestShipmentEventId($shipmentId);
+        $reference = $eventId > 0 ? shipmentEmailReference($shipmentId, $eventId) : null;
+    }
+
+    $emailResult = sendEmail($email['to'], $email['subject'], $email['body'], true, null, null, $reference);
+    writeAppLog(
+        'email',
+        $emailResult['success'] ? 'Shipment notification sent' : (!empty($emailResult['uncertain']) ? 'Shipment notification outcome uncertain' : 'Shipment notification failed'),
+        [
+            'shipment_id' => $shipmentId,
+            'tracking_number' => $email['tracking_number'],
+            'to' => $email['to'],
+            'reference' => $reference,
+            'error' => $emailResult['error'] ?? null,
+        ],
+        $emailResult['success'] ? 'INFO' : 'ERROR'
+    );
+
+    return $emailResult;
+}
+
+/**
+ * Builds the shipment notification without sending it.
+ *
+ * @return array success, message (on failure), to, subject, body, tracking_number
+ */
+function buildShipmentNotificationEmail($shipmentId) {
+    global $conn;
+
     $stmt = $conn->prepare("SELECT * FROM shipments WHERE id = ?");
     $stmt->bind_param("i", $shipmentId);
     $stmt->execute();
     $result = $stmt->get_result();
-    
+
     if ($result->num_rows === 0) {
         $stmt->close();
+        writeAppLog('email', 'Shipment not found for notification', ['shipment_id' => $shipmentId], 'ERROR');
         return ['success' => false, 'message' => 'Shipment not found'];
     }
-    
+
     $shipment = $result->fetch_assoc();
     $stmt->close();
-    
-    // Debug: Log email addresses
-    error_log("sendShipmentNotificationEmail - Shipment ID: $shipmentId");
-    error_log("sendShipmentNotificationEmail - Recipient Email: " . ($shipment['recipient_email'] ?? 'NOT SET'));
-    error_log("sendShipmentNotificationEmail - Sender Email: " . ($shipment['sender_email'] ?? 'NOT SET'));
-    
-    // Check if recipient email exists
+
     if (empty($shipment['recipient_email'])) {
-        error_log("sendShipmentNotificationEmail - ERROR: Recipient email is empty for shipment ID $shipmentId");
+        writeAppLog('email', 'Recipient email empty', ['shipment_id' => $shipmentId], 'ERROR');
         return ['success' => false, 'message' => 'Recipient email not provided'];
     }
-    
-    // Get tracking events
+
+    // Recipient emails saved through sanitizeInput may be HTML-escaped.
+    $recipientEmail = html_entity_decode(trim($shipment['recipient_email']), ENT_QUOTES, 'UTF-8');
+    if (!filter_var($recipientEmail, FILTER_VALIDATE_EMAIL)) {
+        writeAppLog('email', 'Recipient email invalid', ['shipment_id' => $shipmentId, 'to' => $recipientEmail], 'ERROR');
+        return ['success' => false, 'message' => 'Recipient email is invalid'];
+    }
+
     $eventsStmt = $conn->prepare("SELECT * FROM tracking_events WHERE shipment_id = ? ORDER BY event_date ASC");
     $eventsStmt->bind_param("i", $shipmentId);
     $eventsStmt->execute();
     $eventsResult = $eventsStmt->get_result();
-    
+
     $trackingEvents = [];
     while ($row = $eventsResult->fetch_assoc()) {
         $trackingEvents[] = $row;
     }
     $eventsStmt->close();
-    
-    // Generate email content
+
     $emailBody = generateShipmentEmailTemplate($shipment, $trackingEvents);
-    
-    // Determine subject based on status
-    $statusLower = strtolower($shipment['status']);
-    $companyName = getSetting('company_name', 'Shipping Company');
-    
+
+    $trackingNumber = cleanTextInput($shipment['tracking_number'] ?? '');
+    $status = cleanTextInput($shipment['status'] ?? '');
+    $statusLower = strtolower($status);
+
     if (strpos($statusLower, 'delivered') !== false) {
-        $subject = 'Your Shipment Has Been Delivered - ' . htmlspecialchars($shipment['tracking_number']);
+        $subject = 'Your Shipment Has Been Delivered - ' . $trackingNumber;
     } elseif (strpos($statusLower, 'out for delivery') !== false) {
-        $subject = 'Your Shipment is Out for Delivery - ' . htmlspecialchars($shipment['tracking_number']);
+        $subject = 'Your Shipment is Out for Delivery - ' . $trackingNumber;
     } else {
-        $subject = 'Shipment Update - ' . htmlspecialchars($shipment['tracking_number']) . ' - ' . htmlspecialchars($shipment['status']);
+        $subject = 'Shipment Update - ' . $trackingNumber . ' - ' . $status;
     }
-    
-    // Send email to recipient
-    $recipientEmail = $shipment['recipient_email'];
-    error_log("sendShipmentNotificationEmail - Sending email to recipient: $recipientEmail");
-    
-    $emailResult = sendEmail(
-        $recipientEmail,
-        $subject,
-        $emailBody,
-        true
-    );
-    
-    error_log("sendShipmentNotificationEmail - Email result: " . ($emailResult['success'] ? 'SUCCESS' : 'FAILED - ' . $emailResult['message']));
-    
-    return $emailResult;
+
+    return [
+        'success' => true,
+        'to' => $recipientEmail,
+        'subject' => $subject,
+        'body' => $emailBody,
+        'tracking_number' => $trackingNumber,
+    ];
 }
 
+/**
+ * Subject and HTML body of the admin test email (sample shipment data).
+ *
+ * @return array [subject, body]
+ */
+function buildTestEmail() {
+    $companyName = getCompanyName();
+    $mockShipment = [
+        'tracking_number' => 'TEST-' . strtoupper(substr(md5((string) time()), 0, 8)),
+        'reference_number' => 'TEST-REF-' . date('Ymd'),
+        'status' => 'Out for Delivery',
+        'service_type' => $companyName . ' Express',
+        'recipient_name' => 'Test Recipient',
+        'recipient_address' => '123 Test Street',
+        'recipient_city' => 'Test City',
+        'recipient_state' => 'TS',
+        'recipient_zip' => '12345',
+        'recipient_country' => 'United States',
+        'estimated_delivery' => date('Y-m-d', strtotime('+1 day')),
+    ];
+    $mockTrackingEvents = [
+        [
+            'event_type' => 'Order Processed',
+            'description' => 'Shipment label created',
+            'location' => 'Origin Facility',
+            'event_date' => date('Y-m-d H:i:s', strtotime('-2 days')),
+        ],
+        [
+            'event_type' => 'In Transit - Hub North',
+            'description' => 'Package in transit',
+            'location' => 'Distribution Center',
+            'event_date' => date('Y-m-d H:i:s', strtotime('-1 day')),
+        ],
+        [
+            'event_type' => 'Out for Delivery',
+            'description' => 'Package out for delivery',
+            'location' => 'Local Facility',
+            'event_date' => date('Y-m-d H:i:s'),
+        ],
+    ];
+
+    $subject = 'Test Email - ' . $companyName . ' Email Configuration';
+    $body = generateShipmentEmailTemplate($mockShipment, $mockTrackingEvents);
+
+    $testNote = '
+        <div style="background-color: #fbbf24; color: #1a1a1a; padding: 16px; margin-bottom: 20px; border-radius: 8px; text-align: center; font-weight: bold;">
+            This is a TEST EMAIL to verify your email configuration is working correctly.
+        </div>';
+    $body = preg_replace('/<body\b[^>]*>/i', '$0' . str_replace(['\\', '$'], ['\\\\', '\\$'], $testNote), $body, 1);
+
+    return [$subject, $body];
+}

@@ -49,6 +49,7 @@ $latestEvents = getLatestPublicEventsForShipments(array_column($recentShipments,
     <p class="text-gray-600 dark:text-gray-400">Welcome back, <?php echo htmlspecialchars($_SESSION['admin_username'] ?? 'Admin'); ?>!</p>
 </div>
 
+<?php echo renderMailGatewayBanners(); ?>
 <?php renderAdminFlashMessages(); ?>
 <?php if (isset($_GET['created']) && $_GET['created'] == '1'): ?>
     <div class="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 px-4 py-3 rounded mb-6">

@@ -1,203 +1,345 @@
 <?php
 /**
  * Settings (Admin)
- * Auth first so AJAX actions (e.g. test email) share the same session as this page.
+ * All POST handling runs before admin-header.php is included, so every save can redirect (Post/Redirect/Get).
  */
 require_once __DIR__ . '/includes/admin-auth.php';
 
-// ---- AJAX: send test email (avoids /api 401 when session cookie is not attached to /api) ----
-if (
-    $_SERVER['REQUEST_METHOD'] === 'POST'
-    && (
-        (isset($_POST['action']) && $_POST['action'] === 'send_test_email')
-        || (isset($_SERVER['HTTP_X_TEST_EMAIL']) && $_SERVER['HTTP_X_TEST_EMAIL'] === '1')
-    )
-) {
-    header('Content-Type: application/json');
-    set_time_limit(30);
+// Saved trimmed instead of through sanitizeInput(): HTML-escaping would corrupt passwords, secrets and URLs.
+$rawSecretKeys = [
+    'smtp_host',
+    'smtp_port',
+    'smtp_username',
+    'smtp_password',
+    'smtp_encryption',
+    'smtp_from_email',
+    'smtp_from_name',
+    'email_logo_url',
+    'wp_gateway_url',
+    'wp_gateway_client_id',
+    'wp_gateway_client_secret',
+    'wp_gateway_reply_to',
+];
 
-    $raw = file_get_contents('php://input');
-    $json = [];
-    if ($raw && strpos((string) ($_SERVER['CONTENT_TYPE'] ?? ''), 'application/json') !== false) {
-        $json = json_decode($raw, true) ?: [];
+/**
+ * Detect the real image type of an uploaded file and map it to a safe extension.
+ * Returns '' when the file is not one of the allowed image types.
+ */
+function detectBrandImageExtension($tmpPath, array $allowedExtensions) {
+    $mimeToExt = [
+        'image/png' => 'png',
+        'image/jpeg' => 'jpg',
+        'image/gif' => 'gif',
+        'image/webp' => 'webp',
+        'image/x-icon' => 'ico',
+        'image/vnd.microsoft.icon' => 'ico',
+    ];
+
+    $info = @getimagesize($tmpPath);
+    if ($info === false || empty($info['mime']) || !isset($mimeToExt[$info['mime']])) {
+        return '';
     }
-    $emailInput = $_POST['email'] ?? ($json['email'] ?? '');
-    $testEmail = filter_var(trim((string) $emailInput), FILTER_VALIDATE_EMAIL);
+    $ext = $mimeToExt[$info['mime']];
 
-    if (!$testEmail) {
-        http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'Please enter a valid email address.']);
-        exit;
-    }
-
-    try {
-        $companyName = getSetting('company_name', 'Shipping Company');
-        $mockShipment = [
-            'tracking_number' => 'TEST-' . strtoupper(substr(md5((string) time()), 0, 8)),
-            'reference_number' => 'TEST-REF-' . date('Ymd'),
-            'status' => 'Out for Delivery',
-            'service_type' => $companyName . ' Express',
-            'recipient_name' => 'Test Recipient',
-            'recipient_address' => '123 Test Street',
-            'recipient_city' => 'Test City',
-            'recipient_state' => 'TS',
-            'recipient_zip' => '12345',
-            'recipient_country' => 'United States',
-            'estimated_delivery' => date('Y-m-d', strtotime('+1 day')),
-        ];
-        $mockTrackingEvents = [
-            [
-                'event_type' => 'Order Processed',
-                'description' => 'Shipment label created',
-                'location' => 'Origin Facility',
-                'event_date' => date('Y-m-d H:i:s', strtotime('-2 days')),
-            ],
-            [
-                'event_type' => 'In Transit - Hub North',
-                'description' => 'Package in transit',
-                'location' => 'Distribution Center',
-                'event_date' => date('Y-m-d H:i:s', strtotime('-1 day')),
-            ],
-            [
-                'event_type' => 'Out for Delivery',
-                'description' => 'Package out for delivery',
-                'location' => 'Local Facility',
-                'event_date' => date('Y-m-d H:i:s'),
-            ],
-        ];
-
-        $subject = 'Test Email - ' . $companyName . ' Email Configuration';
-        $body = generateShipmentEmailTemplate($mockShipment, $mockTrackingEvents);
-        $testNote = '
-        <div style="background-color: #fbbf24; color: #1a1a1a; padding: 16px; margin-bottom: 20px; border-radius: 8px; text-align: center; font-weight: bold;">
-            This is a TEST EMAIL to verify your SMTP configuration is working correctly.
-        </div>';
-        $body = str_replace(
-            '<body style="background-color: #f6f6f8; padding: 20px 0;">',
-            '<body style="background-color: #f6f6f8; padding: 20px 0;">' . $testNote,
-            $body
-        );
-
-        $result = sendEmail($testEmail, $subject, $body, true);
-        if (!empty($result['success'])) {
-            echo json_encode(['success' => true, 'message' => 'Test email sent successfully']);
-        } else {
-            http_response_code(500);
-            echo json_encode(['success' => false, 'message' => $result['message'] ?? 'Failed to send test email']);
+    if (function_exists('finfo_open')) {
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        if ($finfo) {
+            $realMime = finfo_file($finfo, $tmpPath);
+            finfo_close($finfo);
+            if (!isset($mimeToExt[$realMime]) || $mimeToExt[$realMime] !== $ext) {
+                return '';
+            }
         }
-    } catch (Throwable $e) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
     }
+
+    return in_array($ext, $allowedExtensions, true) ? $ext : '';
+}
+
+/**
+ * Delete a previously uploaded brand file, but only if it is one of ours inside /asset/.
+ */
+function deleteUploadedBrandFile($storedPath, $prefix, $assetDir) {
+    $name = basename((string) $storedPath);
+    if ($name === '' || strpos($name, $prefix) !== 0 || strpos((string) $storedPath, '/asset/') !== 0) {
+        return;
+    }
+    $fullPath = $assetDir . $name;
+    if (is_file($fullPath)) {
+        @unlink($fullPath);
+    }
+}
+
+/**
+ * Validate and store an uploaded brand image. Returns ['ok' => bool, 'message' => string].
+ */
+function storeBrandUpload(array $file, $settingKey, $prefix, array $allowedExtensions, $maxSize, $assetDir) {
+    if ($file['size'] <= 0 || $file['size'] > $maxSize) {
+        return ['ok' => false, 'message' => 'file is too large'];
+    }
+    $ext = detectBrandImageExtension($file['tmp_name'], $allowedExtensions);
+    if ($ext === '') {
+        return ['ok' => false, 'message' => 'file type is not allowed'];
+    }
+
+    $newFileName = $prefix . bin2hex(random_bytes(8)) . '.' . $ext;
+    if (!move_uploaded_file($file['tmp_name'], $assetDir . $newFileName)) {
+        return ['ok' => false, 'message' => 'file could not be saved'];
+    }
+
+    deleteUploadedBrandFile(getSetting($settingKey, ''), $prefix, $assetDir);
+    updateSetting($settingKey, '/asset/' . $newFileName);
+    return ['ok' => true, 'message' => ''];
+}
+
+function settingsTestEmailRespond($status, array $data) {
+    http_response_code($status);
+    echo json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     exit;
 }
 
-include __DIR__ . '/includes/admin-header.php';
+// ---- AJAX: send test email (posted to this page so the logged-in admin session is always available) ----
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'send_test_email') {
+    header('Content-Type: application/json');
+    header('Cache-Control: no-store');
+    set_time_limit(60);
 
-$success = '';
-$error = '';
+    if (!csrfValid()) {
+        settingsTestEmailRespond(403, ['success' => false, 'message' => 'Your session expired. Reload the page and try again.']);
+    }
+
+    $testEmail = filter_var(trim((string) ($_POST['email'] ?? '')), FILTER_VALIDATE_EMAIL);
+    if (!$testEmail) {
+        settingsTestEmailRespond(400, ['success' => false, 'message' => 'Please enter a valid email address.']);
+    }
+
+    try {
+        list($subject, $body) = buildTestEmail();
+        $reference = 'test:' . bin2hex(random_bytes(8));
+        $result = sendEmail($testEmail, $subject, $body, true, null, null, $reference);
+
+        writeAppLog(
+            'email',
+            $result['success'] ? 'Test email sent' : (!empty($result['uncertain']) ? 'Test email outcome uncertain' : 'Test email failed'),
+            [
+                'to' => $testEmail,
+                'reference' => $reference,
+                'provider' => $result['provider'] ?? null,
+                'host' => $result['host'] ?? null,
+                'port' => $result['port'] ?? null,
+                'messageId' => $result['messageId'] ?? null,
+                'http_code' => $result['http_code'] ?? null,
+                'fallback_reason' => $result['fallback_reason'] ?? null,
+                'error' => $result['error'] ?? null,
+            ],
+            $result['success'] ? 'INFO' : 'ERROR'
+        );
+
+        if ($result['success']) {
+            settingsTestEmailRespond(200, [
+                'success' => true,
+                'message' => 'Test email accepted for delivery to ' . $testEmail,
+                'provider' => $result['provider'] ?? null,
+                'messageId' => $result['messageId'] ?? null,
+                'fallback_reason' => $result['fallback_reason'] ?? null,
+            ]);
+        }
+
+        settingsTestEmailRespond(500, [
+            'success' => false,
+            'uncertain' => !empty($result['uncertain']),
+            'title' => $result['title'] ?? 'Email Error',
+            'message' => $result['message'] ?? 'Email failed',
+            'provider' => $result['provider'] ?? null,
+            'host' => $result['host'] ?? null,
+            'port' => $result['port'] ?? null,
+            'http_code' => $result['http_code'] ?? null,
+            'error' => $result['error'] ?? ($result['message'] ?? 'Unknown error'),
+        ]);
+    } catch (Throwable $e) {
+        writeAppLog('email', 'Test email exception', ['error' => $e->getMessage()], 'ERROR');
+        settingsTestEmailRespond(500, ['success' => false, 'title' => 'Email Error', 'message' => 'Error: ' . $e->getMessage(), 'error' => $e->getMessage()]);
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST) && empty($_FILES) && (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
+    $_SESSION['settings_flash_error'] = 'The upload was larger than the server allows, so nothing was saved. Use a smaller image.';
+    header('Location: /admin/settings.php');
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrfValid()) {
+    $_SESSION['settings_flash_error'] = 'Your session expired, so the settings were not saved. Reload the page and try again.';
+    header('Location: /admin/settings.php');
+    exit;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Handle file uploads
     $assetDir = __DIR__ . '/../asset/';
-    
-    // Handle logo upload
-    if (isset($_FILES['logo_upload']) && $_FILES['logo_upload']['error'] === UPLOAD_ERR_OK) {
-        $file = $_FILES['logo_upload'];
-        $allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml'];
-        $maxSize = 5 * 1024 * 1024; // 5MB
-        
-        if (in_array($file['type'], $allowedTypes) && $file['size'] <= $maxSize) {
-            $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
-            $newFileName = 'logo_uploaded_' . time() . '.' . $extension;
-            $targetPath = $assetDir . $newFileName;
-            
-            if (move_uploaded_file($file['tmp_name'], $targetPath)) {
-                // Delete old logo if it exists and is not the default
-                $oldLogo = getSetting('company_logo', '');
-                if (!empty($oldLogo) && strpos($oldLogo, 'logo_uploaded_') !== false) {
-                    $oldPath = __DIR__ . '/..' . $oldLogo;
-                    if (file_exists($oldPath)) {
-                        @unlink($oldPath);
-                    }
-                }
-                updateSetting('company_logo', '/asset/' . $newFileName);
-                $success = 'Logo uploaded successfully!';
+    $updatedKeys = [];
+    $success = '';
+    $error = '';
+
+    $brandAssets = [
+        'logo' => [
+            'label' => 'Logo',
+            'setting' => 'company_logo',
+            'prefix' => 'logo_uploaded_',
+            'extensions' => ['png', 'jpg', 'gif', 'webp'],
+            'maxSize' => 5 * 1024 * 1024,
+            'help' => 'PNG, JPG, GIF, or WEBP (max 5MB)',
+        ],
+        'favicon' => [
+            'label' => 'Favicon',
+            'setting' => 'site_favicon',
+            'prefix' => 'favicon_uploaded_',
+            'extensions' => ['png', 'jpg', 'gif', 'webp', 'ico'],
+            'maxSize' => 2 * 1024 * 1024,
+            'help' => 'PNG, JPG, GIF, WEBP, or ICO (max 2MB)',
+        ],
+    ];
+
+    foreach ($brandAssets as $field => $cfg) {
+        $upload = $_FILES[$field . '_upload'] ?? null;
+        if ($upload && $upload['error'] === UPLOAD_ERR_OK) {
+            $result = storeBrandUpload($upload, $cfg['setting'], $cfg['prefix'], $cfg['extensions'], $cfg['maxSize'], $assetDir);
+            if ($result['ok']) {
+                $updatedKeys[] = $cfg['setting'];
+                $success = trim($success . ' ' . $cfg['label'] . ' uploaded successfully!');
             } else {
-                $error = 'Failed to upload logo.';
+                $error = trim($error . ' Invalid ' . strtolower($cfg['label']) . ' (' . $result['message'] . '). Please upload ' . $cfg['help'] . '.');
+                writeAppLog('settings', $cfg['label'] . ' upload rejected', ['reason' => $result['message']], 'WARN');
             }
-        } else {
-            $error = 'Invalid logo file. Please upload PNG, JPG, GIF, WEBP, or SVG (max 5MB).';
+        } elseif ($upload && $upload['error'] !== UPLOAD_ERR_NO_FILE) {
+            $reason = in_array($upload['error'], [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true) ? 'file is too large for the server' : 'upload failed';
+            $error = trim($error . ' ' . $cfg['label'] . ' was not uploaded (' . $reason . ').');
+            writeAppLog('settings', $cfg['label'] . ' upload error', ['code' => $upload['error']], 'WARN');
         }
     }
-    
-    // Handle favicon upload
-    if (isset($_FILES['favicon_upload']) && $_FILES['favicon_upload']['error'] === UPLOAD_ERR_OK) {
-        $file = $_FILES['favicon_upload'];
-        $allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/x-icon', 'image/vnd.microsoft.icon', 'image/svg+xml'];
-        $maxSize = 2 * 1024 * 1024; // 2MB
-        
-        if (in_array($file['type'], $allowedTypes) && $file['size'] <= $maxSize) {
-            $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
-            $newFileName = 'favicon_uploaded_' . time() . '.' . $extension;
-            $targetPath = $assetDir . $newFileName;
-            
-            if (move_uploaded_file($file['tmp_name'], $targetPath)) {
-                // Delete old favicon if it exists and is not the default
-                $oldFavicon = getSetting('site_favicon', '');
-                if (!empty($oldFavicon) && strpos($oldFavicon, 'favicon_uploaded_') !== false) {
-                    $oldPath = __DIR__ . '/..' . $oldFavicon;
-                    if (file_exists($oldPath)) {
-                        @unlink($oldPath);
-                    }
-                }
-                updateSetting('site_favicon', '/asset/' . $newFileName);
-                $success = $success ? $success . ' Favicon uploaded successfully!' : 'Favicon uploaded successfully!';
-            } else {
-                $error = $error ? $error . ' Failed to upload favicon.' : 'Failed to upload favicon.';
+
+    // Color settings (validate hex format)
+    foreach (['primary_color', 'secondary_color'] as $colorKey) {
+        if (isset($_POST['setting_' . $colorKey])) {
+            $color = trim((string) $_POST['setting_' . $colorKey]);
+            if (preg_match('/^#[0-9A-Fa-f]{6}$/', $color)) {
+                updateSetting($colorKey, strtoupper($color));
+                $updatedKeys[] = $colorKey;
             }
-        } else {
-            $error = $error ? $error . ' Invalid favicon file. Please upload PNG, JPG, ICO, or SVG (max 2MB).' : 'Invalid favicon file. Please upload PNG, JPG, ICO, or SVG (max 2MB).';
         }
     }
-    
-    // Handle color settings (validate hex format)
-    if (isset($_POST['setting_primary_color'])) {
-        $primaryColor = sanitizeInput($_POST['setting_primary_color']);
-        if (preg_match('/^#[0-9A-Fa-f]{6}$/', $primaryColor)) {
-            updateSetting('primary_color', strtoupper($primaryColor));
-        }
-    }
-    
-    if (isset($_POST['setting_secondary_color'])) {
-        $secondaryColor = sanitizeInput($_POST['setting_secondary_color']);
-        if (preg_match('/^#[0-9A-Fa-f]{6}$/', $secondaryColor)) {
-            updateSetting('secondary_color', strtoupper($secondaryColor));
-        }
-    }
-    
-    // Handle regular text settings
+
+    // Text settings
     foreach ($_POST as $key => $value) {
-        if (strpos($key, 'setting_') === 0 && $key !== 'setting_primary_color' && $key !== 'setting_secondary_color') {
-            $settingKey = str_replace('setting_', '', $key);
-            $result = updateSetting($settingKey, sanitizeInput($value));
+        if (strpos($key, 'setting_') !== 0 || $key === 'setting_primary_color' || $key === 'setting_secondary_color') {
+            continue;
         }
+        $settingKey = substr($key, strlen('setting_'));
+
+        // Blank SMTP password / gateway secret = keep existing
+        if (in_array($settingKey, ['smtp_password', 'wp_gateway_client_secret'], true) && trim((string) $value) === '') {
+            continue;
+        }
+
+        if (in_array($settingKey, ['wp_gateway_enabled', 'wp_gateway_fallback', 'wp_gateway_fallback_after_failure'], true)) {
+            $cleanValue = ((string) $value === '1') ? '1' : '0';
+        } elseif (in_array($settingKey, $rawSecretKeys, true)) {
+            $cleanValue = trim((string) $value);
+            if ($settingKey === 'smtp_encryption') {
+                $cleanValue = strtolower($cleanValue);
+                if (!in_array($cleanValue, ['tls', 'ssl', 'none'], true)) {
+                    $cleanValue = 'tls';
+                }
+            }
+            if ($settingKey === 'email_logo_url' && $cleanValue !== ''
+                && (!preg_match('#^https://[^\s/]+/\S+$#i', $cleanValue) || filter_var($cleanValue, FILTER_VALIDATE_URL) === false)) {
+                $error = trim($error . ' The Email Logo Link must be a full image link starting with https://.');
+                continue;
+            }
+            if ($settingKey === 'wp_gateway_url') {
+                $cleanValue = preg_replace('#/wp-json/?$#i', '', rtrim($cleanValue, '/'));
+                if ($cleanValue !== '' && !preg_match('#^https?://[^\s/]+#i', $cleanValue)) {
+                    $error = trim($error . ' The WordPress Site URL must start with https://.');
+                    continue;
+                }
+            }
+            if ($settingKey === 'wp_gateway_client_id' || $settingKey === 'wp_gateway_client_secret') {
+                $cleanValue = strtolower($cleanValue);
+            }
+            if ($settingKey === 'wp_gateway_reply_to' && $cleanValue !== '' && !filter_var($cleanValue, FILTER_VALIDATE_EMAIL)) {
+                $error = trim($error . ' The gateway Reply-To address is not a valid email address.');
+                continue;
+            }
+        } else {
+            $cleanValue = sanitizeInput($value);
+        }
+
+        updateSetting($settingKey, $cleanValue);
+        $updatedKeys[] = $settingKey;
     }
-    
+
+    if (!empty($updatedKeys)) {
+        $secretSet = ['smtp_password', 'wp_gateway_client_secret', 'smartsupp_key', 'google_maps_api_key'];
+        writeAppLog('settings', 'Settings updated', [
+            'keys' => array_values(array_diff($updatedKeys, $secretSet)),
+            'secrets_updated' => array_values(array_intersect($updatedKeys, $secretSet)),
+        ], 'INFO');
+    }
+
     if (empty($success) && empty($error)) {
         $success = 'Settings updated successfully!';
     }
+
+    if (mailGatewayEnabled()) {
+        $savedGateway = mailGatewayCredentials();
+        $lastTest = getMailGatewayLastTest();
+        $savedFingerprint = hash('sha256', $savedGateway['url'] . "\n" . $savedGateway['client_id'] . "\n" . $savedGateway['client_secret']);
+        if (empty($lastTest['ok']) || ($lastTest['fingerprint'] ?? '') !== $savedFingerprint) {
+            $_SESSION['settings_flash_warning'] = 'The WordPress email gateway is switched on, but these settings have not passed Test connection yet. Emails will be sent through the gateway; use Test connection to confirm it works.';
+        }
+    }
+
+    if ($success !== '') {
+        $_SESSION['settings_flash_success'] = $success;
+    }
+    if ($error !== '') {
+        $_SESSION['settings_flash_error'] = $error;
+    }
+    header('Location: /admin/settings.php');
+    exit;
 }
+
+$success = (string) ($_SESSION['settings_flash_success'] ?? '');
+$error = (string) ($_SESSION['settings_flash_error'] ?? '');
+$warning = (string) ($_SESSION['settings_flash_warning'] ?? '');
+unset($_SESSION['settings_flash_success'], $_SESSION['settings_flash_error'], $_SESSION['settings_flash_warning']);
+
+include __DIR__ . '/includes/admin-header.php';
 
 // Get all settings (safe - no user input)
 $settings = [];
 $result = $conn->query("SELECT setting_key, setting_value FROM settings");
 if ($result) {
     while ($row = $result->fetch_assoc()) {
-        $settings[$row['setting_key']] = $row['setting_value'];
+        $value = $row['setting_value'];
+        // Text settings are stored HTML-escaped; show them as plain text so re-saving does not double-escape.
+        if (!in_array($row['setting_key'], $rawSecretKeys, true) && $value !== null) {
+            $value = html_entity_decode((string) $value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        }
+        $settings[$row['setting_key']] = $value;
     }
     $result->free();
 }
+
+$gatewayEnabled = ($settings['wp_gateway_enabled'] ?? '0') === '1';
+$gatewayFallback = ($settings['wp_gateway_fallback'] ?? '1') !== '0';
+$gatewayFallbackAfterFailure = ($settings['wp_gateway_fallback_after_failure'] ?? '0') === '1';
+$gatewayLastTest = getMailGatewayLastTest();
+$gatewayLedger = array_reverse(mailGatewayLedger());
+$ledgerLabels = [
+    'open' => 'Unconfirmed',
+    'accepted' => 'Accepted by gateway',
+    'backup_sent' => 'Sent with SMTP',
+    'dismissed' => 'Dismissed',
+];
 ?>
 <div class="mb-8">
     <h1 class="text-3xl font-light text-gray-800 dark:text-white mb-2">Settings</h1>
@@ -216,8 +358,17 @@ if ($result) {
     </div>
 <?php endif; ?>
 
+<?php if ($warning): ?>
+    <div class="bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 px-4 py-3 rounded mb-6">
+        <?php echo htmlspecialchars($warning); ?>
+    </div>
+<?php endif; ?>
+
+<?php echo renderMailGatewayBanners(); ?>
+
 <div class="bg-white dark:bg-surface-dark rounded-lg shadow p-6">
     <form method="POST" action="" enctype="multipart/form-data">
+        <?php echo csrfField(); ?>
         <div class="space-y-6">
             <!-- Company Logo Upload -->
             <div>
@@ -231,9 +382,25 @@ if ($result) {
                         <img src="<?php echo htmlspecialchars($currentLogo); ?>" alt="Current Logo" class="h-12 w-auto mb-2 border border-gray-300 dark:border-gray-600 rounded p-1">
                     <?php endif; ?>
                 </div>
-                <input type="file" id="logo_upload" name="logo_upload" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,image/svg+xml"
+                <input type="file" id="logo_upload" name="logo_upload" accept="image/png,image/jpeg,image/gif,image/webp"
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
-                <p class="mt-1 text-xs text-gray-500">Upload PNG, JPG, GIF, WEBP, or SVG (max 5MB)</p>
+                <p class="mt-1 text-xs text-gray-500">Upload PNG, JPG, GIF, or WEBP (max 5MB)</p>
+            </div>
+
+            <!-- Email Logo Link -->
+            <div>
+                <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="setting_email_logo_url">
+                    Email Logo Link (optional)
+                </label>
+                <?php $emailLogoUrl = (string) ($settings['email_logo_url'] ?? ''); ?>
+                <?php if ($emailLogoUrl !== ''): ?>
+                    <img src="<?php echo htmlspecialchars($emailLogoUrl); ?>" alt="Email Logo" class="h-12 w-auto mb-2 border border-gray-300 dark:border-gray-600 rounded p-1">
+                <?php endif; ?>
+                <input type="url" id="setting_email_logo_url" name="setting_email_logo_url"
+                       value="<?php echo htmlspecialchars($emailLogoUrl); ?>"
+                       class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
+                       placeholder="https://your-wordpress-site.com/wp-content/uploads/logo.png">
+                <p class="mt-1 text-xs text-gray-500">Logo shown in emails. Leave empty to use the uploaded logo above. Use this when email apps cannot load images from this site (paste a direct https:// image link, for example from the WordPress Media Library).</p>
             </div>
             
             <!-- Site Favicon Upload -->
@@ -248,9 +415,9 @@ if ($result) {
                         <img src="<?php echo htmlspecialchars($currentFavicon); ?>" alt="Current Favicon" class="h-8 w-8 mb-2 border border-gray-300 dark:border-gray-600 rounded p-1">
                     <?php endif; ?>
                 </div>
-                <input type="file" id="favicon_upload" name="favicon_upload" accept="image/png,image/jpeg,image/jpg,image/x-icon,image/vnd.microsoft.icon,image/svg+xml"
+                <input type="file" id="favicon_upload" name="favicon_upload" accept="image/png,image/jpeg,image/gif,image/webp,image/x-icon,image/vnd.microsoft.icon"
                        class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
-                <p class="mt-1 text-xs text-gray-500">Upload PNG, JPG, ICO, or SVG (max 2MB)</p>
+                <p class="mt-1 text-xs text-gray-500">Upload PNG, JPG, GIF, WEBP, or ICO (max 2MB)</p>
             </div>
             
             <div class="border-t border-gray-300 dark:border-gray-600 pt-6">
@@ -359,7 +526,7 @@ if ($result) {
             <!-- Email Configuration Section -->
             <div class="border-t border-gray-300 dark:border-gray-600 pt-6">
                 <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-4">Email Configuration</h3>
-                <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">Configure SMTP settings for sending emails. These settings can also be configured in config.php.</p>
+                <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">Configure SMTP settings for sending emails. These settings can also be configured in config.php. When the WordPress Email Gateway below is on, SMTP is the backup.</p>
                 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <!-- SMTP Host -->
@@ -368,7 +535,7 @@ if ($result) {
                             SMTP Host
                         </label>
                         <input type="text" id="setting_smtp_host" name="setting_smtp_host" 
-                               value="<?php echo htmlspecialchars($settings['smtp_host'] ?? SMTP_HOST); ?>"
+                               value="<?php echo htmlspecialchars($settings['smtp_host'] ?? (defined('SMTP_HOST') ? SMTP_HOST : '')); ?>"
                                class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
                                placeholder="smtp.gmail.com">
                         <p class="mt-1 text-xs text-gray-500">SMTP server hostname</p>
@@ -380,7 +547,7 @@ if ($result) {
                             SMTP Port
                         </label>
                         <input type="number" id="setting_smtp_port" name="setting_smtp_port" 
-                               value="<?php echo htmlspecialchars($settings['smtp_port'] ?? SMTP_PORT); ?>"
+                               value="<?php echo htmlspecialchars($settings['smtp_port'] ?? (defined('SMTP_PORT') ? SMTP_PORT : '587')); ?>"
                                class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
                                placeholder="587">
                         <p class="mt-1 text-xs text-gray-500">Common: 587 (TLS), 465 (SSL), 25 (unencrypted)</p>
@@ -392,7 +559,7 @@ if ($result) {
                             SMTP Username
                         </label>
                         <input type="text" id="setting_smtp_username" name="setting_smtp_username" 
-                               value="<?php echo htmlspecialchars($settings['smtp_username'] ?? SMTP_USERNAME); ?>"
+                               value="<?php echo htmlspecialchars($settings['smtp_username'] ?? (defined('SMTP_USERNAME') ? SMTP_USERNAME : '')); ?>"
                                class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
                                placeholder="your-email@gmail.com">
                         <p class="mt-1 text-xs text-gray-500">Email address for SMTP authentication</p>
@@ -403,23 +570,24 @@ if ($result) {
                         <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="setting_smtp_password">
                             SMTP Password
                         </label>
-                        <input type="password" id="setting_smtp_password" name="setting_smtp_password" 
-                               value="<?php echo htmlspecialchars($settings['smtp_password'] ?? ''); ?>"
+                        <input type="password" id="setting_smtp_password" name="setting_smtp_password" value=""
+                               autocomplete="new-password"
                                class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
-                               placeholder="Leave blank to keep current password">
+                               placeholder="<?php echo !empty($settings['smtp_password']) ? 'Leave blank to keep current' : 'SMTP password or app password'; ?>">
                         <p class="mt-1 text-xs text-gray-500">SMTP password or app password (leave blank to keep current)</p>
                     </div>
                     
                     <!-- SMTP Encryption -->
                     <div>
+                        <?php $smtpEncryption = $settings['smtp_encryption'] ?? (defined('SMTP_ENCRYPTION') ? SMTP_ENCRYPTION : 'tls'); ?>
                         <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="setting_smtp_encryption">
                             SMTP Encryption
                         </label>
                         <select id="setting_smtp_encryption" name="setting_smtp_encryption" 
                                 class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary">
-                            <option value="tls" <?php echo ($settings['smtp_encryption'] ?? SMTP_ENCRYPTION) === 'tls' ? 'selected' : ''; ?>>TLS (Recommended)</option>
-                            <option value="ssl" <?php echo ($settings['smtp_encryption'] ?? SMTP_ENCRYPTION) === 'ssl' ? 'selected' : ''; ?>>SSL</option>
-                            <option value="none" <?php echo ($settings['smtp_encryption'] ?? SMTP_ENCRYPTION) === 'none' ? 'selected' : ''; ?>>None</option>
+                            <option value="tls" <?php echo $smtpEncryption === 'tls' ? 'selected' : ''; ?>>TLS (Recommended)</option>
+                            <option value="ssl" <?php echo $smtpEncryption === 'ssl' ? 'selected' : ''; ?>>SSL</option>
+                            <option value="none" <?php echo $smtpEncryption === 'none' ? 'selected' : ''; ?>>None</option>
                         </select>
                         <p class="mt-1 text-xs text-gray-500">Encryption method (TLS recommended for port 587)</p>
                     </div>
@@ -430,7 +598,7 @@ if ($result) {
                             From Email Address
                         </label>
                         <input type="email" id="setting_smtp_from_email" name="setting_smtp_from_email" 
-                               value="<?php echo htmlspecialchars($settings['smtp_from_email'] ?? SMTP_FROM_EMAIL); ?>"
+                               value="<?php echo htmlspecialchars($settings['smtp_from_email'] ?? (defined('SMTP_FROM_EMAIL') ? SMTP_FROM_EMAIL : '')); ?>"
                                class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
                                placeholder="noreply@example.com">
                         <p class="mt-1 text-xs text-gray-500">Default sender email address</p>
@@ -442,17 +610,111 @@ if ($result) {
                             From Name
                         </label>
                         <input type="text" id="setting_smtp_from_name" name="setting_smtp_from_name" 
-                               value="<?php echo htmlspecialchars($settings['smtp_from_name'] ?? SMTP_FROM_NAME); ?>"
+                               value="<?php echo htmlspecialchars(html_entity_decode((string) ($settings['smtp_from_name'] ?? (defined('SMTP_FROM_NAME') ? SMTP_FROM_NAME : '')), ENT_QUOTES | ENT_HTML5, 'UTF-8')); ?>"
                                class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
                                placeholder="Shipping Company">
                         <p class="mt-1 text-xs text-gray-500">Display name for sender</p>
+                    </div>
+                </div>
+
+                <!-- WordPress Email Gateway -->
+                <div id="wordpress-email-gateway" class="mt-6 p-4 border border-gray-200 dark:border-gray-700 rounded">
+                    <h4 class="text-sm font-bold text-gray-800 dark:text-white mb-2">WordPress Email Gateway</h4>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                        Send emails through a WordPress site running the Universal PHP Mail Gateway plugin. WordPress delivers them with its own mail plugin
+                        and decides the From email; the From name sent is your Company Name. When this is off, SMTP above is used unchanged.
+                    </p>
+
+                    <input type="hidden" name="setting_wp_gateway_enabled" value="0">
+                    <label class="inline-flex items-center text-sm font-bold text-gray-700 dark:text-gray-300 mb-4">
+                        <input type="checkbox" id="setting_wp_gateway_enabled" name="setting_wp_gateway_enabled" value="1" <?php echo $gatewayEnabled ? 'checked' : ''; ?>
+                               class="mr-2 rounded border-gray-300 text-primary focus:ring-primary">
+                        Send emails through the WordPress gateway
+                    </label>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="wp_gateway_connection_key">Paste connection key (optional)</label>
+                        <input type="text" id="wp_gateway_connection_key" autocomplete="off" spellcheck="false"
+                               class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
+                               placeholder="Paste the key from WordPress → Mail Gateway → Connected Sites → Copy connection key">
+                        <p id="wp_gateway_key_status" class="mt-1 text-xs text-gray-500">Fills in the three fields below. The key itself is not saved.</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="md:col-span-2">
+                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="setting_wp_gateway_url">WordPress Site URL</label>
+                            <input type="url" id="setting_wp_gateway_url" name="setting_wp_gateway_url"
+                                   value="<?php echo htmlspecialchars($settings['wp_gateway_url'] ?? ''); ?>"
+                                   class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
+                                   placeholder="https://your-wordpress-site.example">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="setting_wp_gateway_client_id">Client ID</label>
+                            <input type="text" id="setting_wp_gateway_client_id" name="setting_wp_gateway_client_id" autocomplete="off" spellcheck="false"
+                                   value="<?php echo htmlspecialchars($settings['wp_gateway_client_id'] ?? ''); ?>"
+                                   class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
+                                   placeholder="upmg_...">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="setting_wp_gateway_client_secret">Client Secret</label>
+                            <input type="password" id="setting_wp_gateway_client_secret" name="setting_wp_gateway_client_secret" value=""
+                                   class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
+                                   placeholder="<?php echo !empty($settings['wp_gateway_client_secret']) ? 'Leave blank to keep current' : '64-character secret'; ?>"
+                                   autocomplete="new-password">
+                            <p class="mt-1 text-xs text-gray-500">Leave blank to keep the current secret.</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2" for="setting_wp_gateway_reply_to">Reply-To for gateway emails (optional)</label>
+                            <input type="email" id="setting_wp_gateway_reply_to" name="setting_wp_gateway_reply_to"
+                                   value="<?php echo htmlspecialchars($settings['wp_gateway_reply_to'] ?? ''); ?>"
+                                   class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary"
+                                   placeholder="support@yourdomain.com">
+                            <p class="mt-1 text-xs text-gray-500">Used only if it is on this site's allowed Reply-To list in WordPress.</p>
+                        </div>
+                        <div class="flex items-center">
+                            <input type="hidden" name="setting_wp_gateway_fallback" value="0">
+                            <label class="inline-flex items-center text-sm text-gray-700 dark:text-gray-300">
+                                <input type="checkbox" name="setting_wp_gateway_fallback" value="1" <?php echo $gatewayFallback ? 'checked' : ''; ?>
+                                       class="mr-2 rounded border-gray-300 text-primary focus:ring-primary">
+                                Fall back to SMTP above if the gateway is unavailable
+                            </label>
+                        </div>
+                        <div class="md:col-span-2">
+                            <input type="hidden" name="setting_wp_gateway_fallback_after_failure" value="0">
+                            <label class="inline-flex items-center text-sm text-gray-700 dark:text-gray-300">
+                                <input type="checkbox" name="setting_wp_gateway_fallback_after_failure" value="1" <?php echo $gatewayFallbackAfterFailure ? 'checked' : ''; ?>
+                                       class="mr-2 rounded border-gray-300 text-primary focus:ring-primary">
+                                Also fall back after a gateway send failure (may send twice)
+                            </label>
+                            <p class="mt-1 text-xs text-gray-500">Off by default. When WordPress's mail plugin reports a failure, the email may still have gone out, so an SMTP send can deliver it twice. Only used when the fallback above is on.</p>
+                        </div>
+                    </div>
+                    <p class="mt-2 text-xs text-gray-500">Wrong credentials, a disabled site or a wrong URL never fall back: they show a red alert instead so the problem is not hidden.
+                        SMTP is only used when the gateway proves it did not send the email; when the outcome is unknown, nothing is resent and the email is listed under Unconfirmed emails below.</p>
+
+                    <div class="mt-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                        <button type="button" id="wp_gateway_test_btn"
+                                class="px-6 py-2 bg-secondary hover:bg-secondary-dark text-white font-bold rounded transition-colors whitespace-nowrap">
+                            Test connection
+                        </button>
+                        <p id="wp_gateway_status" class="text-sm <?php echo $gatewayLastTest === null ? 'text-gray-500' : (!empty($gatewayLastTest['ok']) ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'); ?>">
+                            <?php if ($gatewayLastTest === null): ?>
+                                Not tested yet.
+                            <?php else: ?>
+                                <?php echo (!empty($gatewayLastTest['ok']) ? '✓ ' : '✗ ') . htmlspecialchars((string) ($gatewayLastTest['message'] ?? '')); ?>
+                                · tested <?php echo htmlspecialchars(date('M j, Y g:i A', (int) ($gatewayLastTest['time'] ?? time()))); ?>
+                                <?php foreach (($gatewayLastTest['warnings'] ?? []) as $gatewayWarning): ?>
+                                    <span class="block text-amber-700 dark:text-amber-300"><?php echo htmlspecialchars((string) $gatewayWarning); ?></span>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </p>
                     </div>
                 </div>
                 
                 <!-- Test Email Section -->
                 <div class="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded">
                     <h4 class="text-sm font-bold text-blue-800 dark:text-blue-200 mb-3">Test Email Configuration</h4>
-                    <p class="text-xs text-blue-700 dark:text-blue-300 mb-4">Send a test email to verify your SMTP configuration is working correctly.</p>
+                    <p class="text-xs text-blue-700 dark:text-blue-300 mb-4">Send a test email to any address. It goes through the WordPress gateway when that is switched on, otherwise SMTP. Save settings first if you just changed them.</p>
                     <div class="flex flex-col sm:flex-row gap-3">
                         <input type="email" id="test_email_address" 
                                class="flex-1 px-4 py-2 border border-blue-300 dark:border-blue-700 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-blue-500"
@@ -542,7 +804,91 @@ if ($result) {
     </form>
 </div>
 
+<div id="mail-gateway-ledger" class="bg-white dark:bg-surface-dark rounded-lg shadow p-6 mt-8">
+    <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-2">WordPress Email Gateway — Unconfirmed emails</h3>
+    <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+        Emails whose outcome the gateway could not confirm. They may or may not have been sent, so they were not resent automatically.
+        <strong>Retry through gateway</strong> is safe: the gateway sends each email at most once and answers "already accepted" if it went out.
+        <strong>Send with SMTP anyway</strong> uses the SMTP settings above and may deliver a second copy. Shipment emails are rebuilt from the shipment's current details.
+    </p>
+    <?php if (empty($gatewayLedger)): ?>
+        <p class="text-sm text-gray-500">Nothing here.</p>
+    <?php else: ?>
+        <div class="overflow-x-auto">
+            <table class="min-w-full text-sm">
+                <thead>
+                    <tr class="text-left text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
+                        <th class="py-2 pr-4">When</th>
+                        <th class="py-2 pr-4">Email</th>
+                        <th class="py-2 pr-4">What happened</th>
+                        <th class="py-2 pr-4">Status</th>
+                        <th class="py-2">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php foreach (array_slice($gatewayLedger, 0, 50) as $entry):
+                    $entryState = (string) ($entry['state'] ?? 'open');
+                    $entryInfo = mailGatewayReferenceInfo($entry['reference'] ?? '');
+                    ?>
+                    <tr class="border-b border-gray-100 dark:border-gray-800 align-top">
+                        <td class="py-2 pr-4 whitespace-nowrap text-gray-600 dark:text-gray-400"><?php echo htmlspecialchars(date('M j, Y g:i A', (int) ($entry['time'] ?? 0))); ?></td>
+                        <td class="py-2 pr-4 text-gray-800 dark:text-gray-200">
+                            <?php echo htmlspecialchars((string) ($entry['subject'] ?? '')); ?>
+                            <span class="block text-xs text-gray-500">To <?php echo htmlspecialchars((string) ($entry['to'] ?? '')); ?> · <?php echo htmlspecialchars((string) ($entry['reference'] ?? '')); ?></span>
+                        </td>
+                        <td class="py-2 pr-4 text-gray-700 dark:text-gray-300">
+                            <?php echo htmlspecialchars((string) ($entry['reason'] ?? '')); ?>
+                            <?php if (!empty($entry['note'])): ?>
+                                <span class="block text-xs text-gray-500"><?php echo htmlspecialchars((string) $entry['note']); ?></span>
+                            <?php endif; ?>
+                        </td>
+                        <td class="py-2 pr-4 whitespace-nowrap <?php echo $entryState === 'open' ? 'text-amber-700 dark:text-amber-300 font-bold' : 'text-gray-600 dark:text-gray-400'; ?>">
+                            <?php echo htmlspecialchars($ledgerLabels[$entryState] ?? $entryState); ?>
+                        </td>
+                        <td class="py-2">
+                            <?php if ($entryState === 'open'): ?>
+                                <div class="flex flex-wrap gap-2">
+                                    <?php if ($entryInfo['kind'] !== 'other'): ?>
+                                        <form method="POST" action="/admin/mail-gateway-ledger.php">
+                                            <?php echo csrfField(); ?>
+                                            <input type="hidden" name="id" value="<?php echo htmlspecialchars((string) $entry['id']); ?>">
+                                            <input type="hidden" name="ledger_action" value="retry">
+                                            <button type="submit" class="px-3 py-1 rounded text-white bg-primary hover:bg-primary-dark text-xs font-bold">Retry through gateway</button>
+                                        </form>
+                                        <form method="POST" action="/admin/mail-gateway-ledger.php"
+                                              onsubmit="return confirm('Send this email with SMTP? If the gateway already sent it, the recipient gets it twice.');">
+                                            <?php echo csrfField(); ?>
+                                            <input type="hidden" name="id" value="<?php echo htmlspecialchars((string) $entry['id']); ?>">
+                                            <input type="hidden" name="ledger_action" value="backup">
+                                            <button type="submit" class="px-3 py-1 rounded text-white bg-amber-600 hover:bg-amber-700 text-xs font-bold">Send with SMTP anyway</button>
+                                        </form>
+                                    <?php endif; ?>
+                                    <form method="POST" action="/admin/mail-gateway-ledger.php">
+                                        <?php echo csrfField(); ?>
+                                        <input type="hidden" name="id" value="<?php echo htmlspecialchars((string) $entry['id']); ?>">
+                                        <input type="hidden" name="ledger_action" value="dismiss">
+                                        <button type="submit" class="px-3 py-1 rounded text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 text-xs font-bold">Dismiss</button>
+                                    </form>
+                                </div>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    <?php endif; ?>
+</div>
+
 <script>
+const csrfToken = (document.querySelector('meta[name="csrf-token"]') || {}).content
+    || (document.querySelector('input[name="csrf_token"]') || {}).value
+    || '';
+
+function escapeHtml(value) {
+    return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 // Sync color picker and text input
 (function() {
     const primaryColor = document.getElementById('setting_primary_color');
@@ -619,7 +965,7 @@ if ($result) {
             
             // Load Google Maps script
             const script = document.createElement('script');
-            script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+            script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places`;
             script.async = true;
             script.defer = true;
             
@@ -658,96 +1004,181 @@ if ($result) {
             
             document.head.appendChild(script);
         });
-        
-        // Auto-test when API key is entered and form is saved
-        const form = document.querySelector('form');
-        if (form) {
-            form.addEventListener('submit', function() {
-            });
-        }
     }
 })();
 
-// Test Email Functionality
+// WordPress Email Gateway: connection key + Test connection
+(function() {
+    const keyInput = document.getElementById('wp_gateway_connection_key');
+    const keyStatus = document.getElementById('wp_gateway_key_status');
+    const urlInput = document.getElementById('setting_wp_gateway_url');
+    const idInput = document.getElementById('setting_wp_gateway_client_id');
+    const secretInput = document.getElementById('setting_wp_gateway_client_secret');
+    const testBtn = document.getElementById('wp_gateway_test_btn');
+    const status = document.getElementById('wp_gateway_status');
+
+    function setStatus(text, tone) {
+        status.textContent = text;
+        status.className = 'text-sm ' + ({
+            ok: 'text-green-700 dark:text-green-300',
+            error: 'text-red-700 dark:text-red-300',
+            info: 'text-blue-600 dark:text-blue-400'
+        }[tone] || 'text-gray-500');
+    }
+
+    if (keyInput) {
+        keyInput.addEventListener('input', function() {
+            const raw = keyInput.value.trim();
+            if (!raw) return;
+            try {
+                const data = JSON.parse(atob(raw));
+                if (!data || !data.url || !data.client_id || !data.client_secret) throw new Error('incomplete');
+                urlInput.value = data.url;
+                idInput.value = data.client_id;
+                secretInput.value = data.client_secret;
+                keyInput.value = '';
+                keyStatus.textContent = '✓ URL, Client ID and Secret filled in. Click Test connection, then Save Settings.';
+                keyStatus.className = 'mt-1 text-xs text-green-700 dark:text-green-300';
+            } catch (e) {
+                keyStatus.textContent = '✗ That is not a valid connection key. Copy it again from WordPress → Mail Gateway → Connected Sites.';
+                keyStatus.className = 'mt-1 text-xs text-red-700 dark:text-red-300';
+            }
+        });
+    }
+
+    if (!testBtn) return;
+    testBtn.addEventListener('click', async function() {
+        testBtn.disabled = true;
+        testBtn.textContent = 'Testing...';
+        setStatus('Contacting the WordPress gateway...', 'info');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 45000);
+        try {
+            const response = await fetch('/api/test-mail-gateway.php', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                body: JSON.stringify({ url: urlInput.value.trim(), client_id: idInput.value.trim(), client_secret: secretInput.value.trim() }),
+                signal: controller.signal
+            });
+            if (response.status === 401) {
+                throw new Error('Unauthorized — please log in again and retry.');
+            }
+            const data = await response.json();
+            const warnings = Array.isArray(data.warnings) && data.warnings.length ? ' ⚠ ' + data.warnings.join(' ') : '';
+            setStatus((data.success ? '✓ ' : '✗ ') + (data.message || 'Unknown result') + warnings, data.success ? 'ok' : 'error');
+        } catch (error) {
+            setStatus(error.name === 'AbortError' ? '✗ The test timed out.' : '✗ ' + (error.message || 'Request failed'), 'error');
+        } finally {
+            clearTimeout(timeoutId);
+            testBtn.disabled = false;
+            testBtn.textContent = 'Test connection';
+        }
+    });
+})();
+
+// Test Email
 (function() {
     const testEmailBtn = document.getElementById('send_test_email_btn');
     const testEmailInput = document.getElementById('test_email_address');
     const testEmailResult = document.getElementById('test_email_result');
-    
-    if (testEmailBtn && testEmailInput) {
-        testEmailBtn.addEventListener('click', async function() {
-            const email = testEmailInput.value.trim();
-            
-            if (!email) {
-                testEmailResult.innerHTML = '<p class="text-red-600 dark:text-red-400">Please enter an email address.</p>';
-                return;
-            }
-            
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-                testEmailResult.innerHTML = '<p class="text-red-600 dark:text-red-400">Please enter a valid email address.</p>';
-                return;
-            }
-            
-            // Disable button and show loading
-            testEmailBtn.disabled = true;
-            testEmailBtn.textContent = 'Sending...';
-            testEmailResult.innerHTML = '<p class="text-blue-600 dark:text-blue-400">Sending test email...</p>';
-            
-            // Create AbortController for timeout
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-            
+
+    if (!testEmailBtn || !testEmailInput) return;
+
+    testEmailBtn.addEventListener('click', async function() {
+        const email = testEmailInput.value.trim();
+
+        if (!email) {
+            testEmailResult.innerHTML = '<p class="text-red-600 dark:text-red-400">Please enter an email address.</p>';
+            return;
+        }
+
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            testEmailResult.innerHTML = '<p class="text-red-600 dark:text-red-400">Please enter a valid email address.</p>';
+            return;
+        }
+
+        testEmailBtn.disabled = true;
+        testEmailBtn.textContent = 'Sending...';
+        testEmailResult.innerHTML = '<p class="text-blue-600 dark:text-blue-400">Sending test email...</p>';
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+        try {
+            const formData = new FormData();
+            formData.append('action', 'send_test_email');
+            formData.append('email', email);
+            formData.append('csrf_token', csrfToken);
+
+            const response = await fetch('/admin/settings.php', {
+                method: 'POST',
+                credentials: 'same-origin',
+                body: formData,
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            let data = null;
             try {
-                // Post to this same admin page so the logged-in session is always available
-                // (avoids 401 from /api/test-email.php when the session cookie is not sent to /api).
-                const formData = new FormData();
-                formData.append('action', 'send_test_email');
-                formData.append('email', email);
-
-                const response = await fetch('/admin/settings.php', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    body: formData,
-                    signal: controller.signal
-                });
-
-                clearTimeout(timeoutId);
-
-                let data = null;
-                try {
-                    data = await response.json();
-                } catch (parseErr) {
-                    throw new Error(response.status === 401
-                        ? 'Unauthorized — please log in again and retry.'
-                        : ('Server responded with status: ' + response.status));
-                }
-
-                if (!response.ok || !data.success) {
-                    const msg = (data && (data.message || data.error))
-                        ? (data.message || data.error)
-                        : ('Server responded with status: ' + response.status);
-                    if (response.status === 401) {
-                        throw new Error('Unauthorized — please log in again and retry.');
-                    }
-                    throw new Error(msg);
-                }
-
-                testEmailResult.innerHTML = '<p class="text-green-600 dark:text-green-400">✓ Test email sent successfully! Check your inbox.</p>';
-            } catch (error) {
-                clearTimeout(timeoutId);
-                if (error.name === 'AbortError') {
-                    testEmailResult.innerHTML = '<p class="text-red-600 dark:text-red-400">✗ Request timed out. Check your SMTP settings and try again.</p>';
-                } else {
-                    testEmailResult.innerHTML = '<p class="text-red-600 dark:text-red-400">✗ Error: ' + error.message + '</p>';
-                }
-            } finally {
-                testEmailBtn.disabled = false;
-                testEmailBtn.textContent = 'Send Test Email';
+                data = await response.json();
+            } catch (parseErr) {
+                throw new Error('Server responded with status: ' + response.status);
             }
-        });
-    }
+
+            if (data.success) {
+                const providerLabels = { phpmailer: 'SMTP', 'wordpress-gateway': 'WordPress email gateway' };
+                const label = providerLabels[data.provider] || '';
+                const via = label ? ' (' + label + ')' : '';
+                const msgId = data.messageId ? String(data.messageId) : '';
+                const fallback = data.fallback_reason ? String(data.fallback_reason) : '';
+                let hint = '<p class="text-xs mt-2">If it does not arrive, check the Spam folder.</p>';
+                let idLine = '';
+                if (data.provider === 'wordpress-gateway') {
+                    idLine = msgId ? '<p class="text-xs"><strong>Gateway request ID:</strong> ' + escapeHtml(msgId) + '</p>' : '';
+                    hint = '<p class="text-xs mt-2">Check Spam, and WordPress → Mail Gateway → Logs. The From email is set by the WordPress site\'s mail plugin.</p>';
+                }
+                testEmailResult.innerHTML =
+                    '<div class="text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded p-3">' +
+                    '<p class="font-bold mb-2">✓ Test email accepted for delivery' + via + '</p>' +
+                    (fallback ? '<p class="text-xs text-amber-700 dark:text-amber-300 mb-1"><strong>SMTP backup used:</strong> ' + escapeHtml(fallback) + '</p>' : '') +
+                    '<p class="text-xs"><strong>To:</strong> ' + escapeHtml(email) + '</p>' +
+                    idLine +
+                    hint +
+                    '</div>';
+            } else {
+                if (response.status === 401) {
+                    throw new Error('Unauthorized — please log in again and retry.');
+                }
+                const title = data.title || 'Email failed';
+                const err = data.error || data.message || 'Unknown error';
+                const provider = data.provider ? '<p class="text-xs"><strong>Provider:</strong> ' + escapeHtml(data.provider) + '</p>' : '';
+                const host = data.host ? '<p class="text-xs"><strong>Host:</strong> ' + escapeHtml(data.host) + '</p>' : '';
+                const port = data.port ? '<p class="text-xs"><strong>Port:</strong> ' + escapeHtml(data.port) + '</p>' : '';
+                const httpCode = data.http_code != null ? '<p class="text-xs"><strong>HTTP:</strong> ' + escapeHtml(data.http_code) + '</p>' : '';
+                const box = data.uncertain
+                    ? 'text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800'
+                    : 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800';
+                testEmailResult.innerHTML =
+                    '<div class="' + box + ' rounded p-3">' +
+                    '<p class="font-bold mb-2">' + escapeHtml(title) + '</p>' +
+                    provider + host + port + httpCode +
+                    '<p class="text-xs mt-1"><strong>Error:</strong> ' + escapeHtml(err) + '</p>' +
+                    '</div>';
+            }
+        } catch (error) {
+            clearTimeout(timeoutId);
+            if (error.name === 'AbortError') {
+                testEmailResult.innerHTML = '<p class="text-red-600 dark:text-red-400">✗ Request timed out. Check your email settings and try again.</p>';
+            } else {
+                testEmailResult.innerHTML = '<p class="text-red-600 dark:text-red-400">✗ ' + escapeHtml(error.message || 'Request failed') + '</p>';
+            }
+        } finally {
+            testEmailBtn.disabled = false;
+            testEmailBtn.textContent = 'Send Test Email';
+        }
+    });
 })();
 </script>
 
 <?php include __DIR__ . '/includes/admin-footer.php'; ?>
-

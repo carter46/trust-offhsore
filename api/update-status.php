@@ -85,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($updatedResult->num_rows > 0) {
                 $updatedShipment = $updatedResult->fetch_assoc();
                 if (!empty($updatedShipment['recipient_email'])) {
-                    $emailResult = sendShipmentNotificationEmail($shipmentId);
+                    $emailResult = sendShipmentNotificationEmail($shipmentId, $eventId);
                     $emailSent = $emailResult['success'];
                     if (!$emailSent) {
                         $emailError = $emailResult['message'];

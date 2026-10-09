@@ -1,1 +1,6 @@
 config.php
+logs/*
+!logs/.htaccess
+debug.log
+error.log
+database/u502532383_*.sql

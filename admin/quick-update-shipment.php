@@ -113,13 +113,15 @@ if (!$eventStmt->execute()) {
     $eventStmt->close();
     quickUpdateRedirect($returnTo, ['error' => 'Failed to save tracking event.']);
 }
+$eventId = (int) $eventStmt->insert_id;
 $eventStmt->close();
 
 $emailStatus = '';
 if ($statusChanged) {
     if (!empty($shipment['recipient_email'])) {
-        $emailResult = sendShipmentNotificationEmail($shipmentId);
-        $emailStatus = !empty($emailResult['success']) ? 'sent' : 'failed';
+        $emailResult = sendShipmentNotificationEmail($shipmentId, $eventId);
+        $emailStatus = emailResultFlashStatus($emailResult);
+        rememberEmailResultForFlash($emailResult);
     } else {
         $emailStatus = 'missing-recipient-email';
     }

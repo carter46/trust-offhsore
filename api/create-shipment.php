@@ -19,23 +19,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawInput = file_get_contents('php://input');
     $input = json_decode($rawInput, true);
     
-    // #region agent log
-    // Log to site root so it's available on hosting File Manager/FTP
-    $agentLogFile = __DIR__ . '/../debug.log';
-    $agentLogLine = json_encode([
-        'sessionId' => 'bug-check',
-        'runId' => 'pre-fix',
-        'hypothesisId' => 'A',
-        'location' => 'api/create-shipment.php:20',
-        'message' => 'API request received',
-        'data' => ['method' => $_SERVER['REQUEST_METHOD'], 'inputKeys' => $input ? array_keys($input) : [], 'rawInputLength' => strlen($rawInput)],
-        'timestamp' => time() * 1000
-    ]) . "\n";
-    if (@file_put_contents($agentLogFile, $agentLogLine, FILE_APPEND) === false) {
-        error_log('AGENT_LOG ' . $agentLogLine);
-    }
-    // #endregion
-    
     // Validate required fields
     $required = ['sender_name', 'sender_address', 'recipient_name', 'recipient_address', 'service_type'];
     foreach ($required as $field) {
@@ -108,21 +91,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $stmt = $conn->prepare("INSERT INTO shipments (tracking_number, sender_name, sender_address, sender_city, sender_state, sender_zip, sender_country, sender_email, sender_phone, sender_latitude, sender_longitude, recipient_name, recipient_address, recipient_city, recipient_state, recipient_zip, recipient_country, recipient_email, recipient_phone, recipient_latitude, recipient_longitude, pickup_location, pickup_latitude, pickup_longitude, dropoff_location, dropoff_latitude, dropoff_longitude, weight, dimensions, service_type, status, estimated_delivery, shipment_created_at, reference_number, item_image, shipment_worth, base_cost, clearance_cost, total_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     
     if (!$stmt) {
-        // #region agent log
-        $agentLogFile = __DIR__ . '/../debug.log';
-        $agentLogLine = json_encode([
-            'sessionId' => 'bug-check',
-            'runId' => 'pre-fix',
-            'hypothesisId' => 'B',
-            'location' => 'api/create-shipment.php:88',
-            'message' => 'Statement preparation failed',
-            'data' => ['error' => $conn->error, 'errno' => $conn->errno],
-            'timestamp' => time() * 1000
-        ]) . "\n";
-        if (@file_put_contents($agentLogFile, $agentLogLine, FILE_APPEND) === false) {
-            error_log('AGENT_LOG ' . $agentLogLine);
-        }
-        // #endregion
         http_response_code(500);
         echo json_encode(['error' => 'Failed to prepare statement: ' . $conn->error]);
         exit;
@@ -164,22 +132,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     $executeResult = $stmt->execute();
     
-    // #region agent log
-    $agentLogFile = __DIR__ . '/../debug.log';
-    $agentLogLine = json_encode([
-        'sessionId' => 'bug-check',
-        'runId' => 'pre-fix',
-        'hypothesisId' => 'C',
-        'location' => 'api/create-shipment.php:126',
-        'message' => 'Statement execution result',
-        'data' => ['executeResult' => $executeResult, 'error' => $stmt->error, 'errno' => $stmt->errno, 'affectedRows' => $stmt->affected_rows],
-        'timestamp' => time() * 1000
-    ]) . "\n";
-    if (@file_put_contents($agentLogFile, $agentLogLine, FILE_APPEND) === false) {
-        error_log('AGENT_LOG ' . $agentLogLine);
-    }
-    // #endregion
-    
     if ($executeResult) {
         $shipmentId = $stmt->insert_id;
         
@@ -194,6 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $eventStmt = $conn->prepare("INSERT INTO tracking_events (shipment_id, event_type, description, location, latitude, longitude, event_date) VALUES (?, ?, ?, ?, ?, ?, ?)");
         $eventStmt->bind_param("isssdds", $shipmentId, $eventType, $description, $location, $eventLat, $eventLng, $shipmentCreatedAt);
         $eventStmt->execute();
+        $labelEventId = (int) $eventStmt->insert_id;
         $eventStmt->close();
         
         // Create tracking event for admin comment if provided
@@ -212,7 +165,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $emailSent = false;
         $emailError = null;
         if (isset($input['send_email_notification']) && $input['send_email_notification'] && !empty($recipientEmail)) {
-            $emailResult = sendShipmentNotificationEmail($shipmentId);
+            $emailResult = sendShipmentNotificationEmail($shipmentId, $labelEventId);
             $emailSent = $emailResult['success'];
             if (!$emailSent) {
                 $emailError = $emailResult['message'];
@@ -234,21 +187,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         echo json_encode($response);
     } else {
-        // #region agent log
-        $agentLogFile = __DIR__ . '/../debug.log';
-        $agentLogLine = json_encode([
-            'sessionId' => 'bug-check',
-            'runId' => 'pre-fix',
-            'hypothesisId' => 'D',
-            'location' => 'api/create-shipment.php:160',
-            'message' => 'Statement execution failed',
-            'data' => ['error' => $stmt->error, 'errno' => $stmt->errno, 'sqlState' => $stmt->sqlstate],
-            'timestamp' => time() * 1000
-        ]) . "\n";
-        if (@file_put_contents($agentLogFile, $agentLogLine, FILE_APPEND) === false) {
-            error_log('AGENT_LOG ' . $agentLogLine);
-        }
-        // #endregion
         http_response_code(500);
         $errorMsg = 'Failed to create shipment: ' . $stmt->error;
         // Check if error is due to missing columns
