@@ -102,6 +102,15 @@ if ($isProduction) {
 
 date_default_timezone_set('UTC');
 
+/**
+ * Admin password reset page (/admin/reset-admin-password.php).
+ * true  = the page works and the admin login page shows a "Reset admin password" link.
+ * false = the page is locked and the link is hidden.
+ * Anyone who opens the page while it is on can reset an admin password, so turn it on only
+ * while you need it, then set it back to false.
+ */
+define('ADMIN_PASSWORD_RESET_ENABLED', false);
+
 function getDBConnection() {
     global $conn;
     return $conn;

@@ -473,6 +473,14 @@ function isAdminLoggedIn() {
 }
 
 /**
+ * Admin password reset page (/admin/reset-admin-password.php), switched by ADMIN_PASSWORD_RESET_ENABLED in config.php.
+ * true = the page works and the login page shows the "Reset admin password" link; false (or not set) = both are off.
+ */
+function adminPasswordResetEnabled() {
+    return defined('ADMIN_PASSWORD_RESET_ENABLED') && ADMIN_PASSWORD_RESET_ENABLED === true;
+}
+
+/**
  * Require admin login (redirect if not logged in)
  */
 function requireAdminLogin() {

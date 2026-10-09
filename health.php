@@ -20,7 +20,7 @@ try {
     echo "  1. Confirm database name, username, and password\n";
     echo "  2. Ensure the user is assigned to the database\n";
     echo "  3. Update config.php (DB_HOST, DB_USER, DB_PASS, DB_NAME) on the server\n";
-    echo "  4. Import database/u502532383_safegate.sql if tables are missing\n";
+    echo "  4. Import database/schema.sql if tables are missing\n";
     exit(1);
 }
 
@@ -35,7 +35,7 @@ if ($conn->connect_errno) {
     echo "  1. Confirm database name, username, and password\n";
     echo "  2. Ensure the user is assigned to the database\n";
     echo "  3. Update config.php (DB_HOST, DB_USER, DB_PASS, DB_NAME) on the server\n";
-    echo "  4. Import database/u502532383_safegate.sql if tables are missing\n";
+    echo "  4. Import database/schema.sql if tables are missing\n";
     exit(1);
 }
 $checks[] = 'database connected';

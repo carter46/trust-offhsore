@@ -149,6 +149,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                            class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-background-dark text-gray-800 dark:text-white focus:ring-2 focus:ring-primary focus:border-transparent"
                            placeholder="Enter your password"
                            autocomplete="current-password">
+                    <?php if (adminPasswordResetEnabled()): ?>
+                        <div class="mt-2 text-right">
+                            <a href="/admin/reset-admin-password.php" class="text-sm text-primary hover:underline">Reset admin password</a>
+                        </div>
+                    <?php endif; ?>
                 </div>
                 
                 <button type="submit" class="w-full bg-primary hover:bg-primary-dark text-white font-bold py-3 px-6 rounded uppercase tracking-wide transition-colors">
