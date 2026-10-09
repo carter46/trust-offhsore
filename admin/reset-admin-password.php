@@ -65,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$companyName = getSetting('company_name', 'FedEx');
+$companyName = getCompanyName();
 $primaryColor = getSetting('primary_color', '#4D148C');
 $secondaryColor = getSetting('secondary_color', '#FF6200');
 $primaryDark = darkenColor($primaryColor, 30);
