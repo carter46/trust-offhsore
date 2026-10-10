@@ -1,15 +1,34 @@
 <?php
 include __DIR__ . '/includes/header.php';
 
-$page = getPageContent('faq');
-$content = $page['content'] ?? null;
-
-$hero = $content['hero'] ?? [
+// Page content is defined here, not in the pages table; Admin > Pages edits do not apply.
+$hero = [
     'heading' => 'Frequently Asked Questions',
-    'subtitle' => 'Common questions about {company}'
+    'subtitle' => 'Common questions about {company}',
 ];
 
-$faqItems = $content['items'] ?? [];
+$faqItems = [
+    [
+        'question' => 'What services does {company} offer?',
+        'answer' => '{company} offers a comprehensive range of shipping and logistics services including sea freight, air freight, haulage and local transport, bulk cargo handling, clearing and customs brokerage, import and duty finance, courier services, and repackaging services.',
+    ],
+    [
+        'question' => 'How can I track my shipment?',
+        'answer' => 'You can track your shipment by entering your tracking number on our tracking page. {company} provides real-time tracking updates for most of our shipping services.',
+    ],
+    [
+        'question' => 'What payment methods does {company} accept?',
+        'answer' => '{company} accepts various payment methods. Please contact our customer service team for more information about payment options available in your region.',
+    ],
+    [
+        'question' => 'Does {company} offer international shipping?',
+        'answer' => 'Yes, {company} offers international shipping services including sea freight and air freight to destinations worldwide. Our team handles all necessary documentation and customs clearance.',
+    ],
+    [
+        'question' => 'How can I contact {company} customer service?',
+        'answer' => 'You can contact {company} customer service through our website contact form, email, or phone. Our support team is available to assist you with any questions or concerns about your shipments.',
+    ],
+];
 $companyName = getSetting('company_name', 'FedEx');
 ?>
 
